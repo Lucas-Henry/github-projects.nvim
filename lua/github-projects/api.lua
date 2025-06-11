@@ -78,11 +78,11 @@ function M.get_projects(callback)
   end
 
   local query = string.format([[{
-    "query": "query { organization(login: \"%s\") { projectsV2(first: 10) { nodes { id title url description } } } }"
+    "query": "query { organization(login: \"%s\") { projectsV2(first: 10) { nodes { id title url number shortDescription } } } }"
   }]], org)
 
   local headers = {
-    "Authorization: Bearer " .. token, -- Mudança: Bearer ao invés de token
+    "Authorization: Bearer " .. token,
     "Content-Type: application/json",
     "Accept: application/vnd.github.v3+json"
   }
@@ -107,10 +107,17 @@ function M.get_projects(callback)
     end
 
     if data and data.data and data.data.organization and data.data.organization.projectsV2 then
-      callback(data.data.organization.projectsV2.nodes)
+      local projects = data.data.organization.projectsV2.nodes
+      if #projects > 0 then
+        callback(projects)
+      else
+        vim.notify("Nenhum projeto V2 encontrado na organização " .. org, vim.log.levels.WARN)
+        callback({})
+      end
     else
-      vim.notify("Nenhum projeto V2 encontrado, tentando repositórios...", vim.log.levels.WARN)
-      M.get_repositories(callback)
+      vim.notify("Organização não encontrada ou sem projetos V2. Dados recebidos: " .. vim.inspect(data),
+        vim.log.levels.WARN)
+      callback({})
     end
   end)
 end
