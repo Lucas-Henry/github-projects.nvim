@@ -2,40 +2,22 @@ local M = {}
 local config = require('github-projects.config')
 local api = require('github-projects.api')
 local ui = require('github-projects.ui')
--- etc
 
--- Estado global do plugin
-M.state = {
-  projects = {},
-  issues = {},
-  current_project = nil,
-  loaded = false
-}
-
--- Inicializar o plugin
 function M.setup(opts)
   config.setup(opts or {})
 
-  -- Verificar se as credenciais estão configuradas
   if not config.validate() then
-    vim.notify("GitHub Projects: Configure suas credenciais em ~/.config/gh_access.conf", vim.log.levels.ERROR)
+    vim.notify("GitHub Projects: Configuração inválida. Verifique o arquivo de configuração.", vim.log.levels.ERROR)
     return
   end
 
-  M.state.loaded = true
-  vim.notify("GitHub Projects: Plugin carregado com sucesso!", vim.log.levels.INFO)
+  M.setup_commands()
+  M.setup_keymaps()
 end
 
--- Carregar projetos
 function M.load_projects()
-  if not M.state.loaded then
-    vim.notify("GitHub Projects: Plugin não inicializado", vim.log.levels.ERROR)
-    return
-  end
-
   api.get_projects(function(projects)
     if projects then
-      M.state.projects = projects
       ui.show_projects(projects)
     else
       vim.notify("Erro ao carregar projetos", vim.log.levels.ERROR)
@@ -43,16 +25,9 @@ function M.load_projects()
   end)
 end
 
--- Carregar issues
 function M.load_issues(repo)
-  if not M.state.loaded then
-    vim.notify("GitHub Projects: Plugin não inicializado", vim.log.levels.ERROR)
-    return
-  end
-
-  api.get_issues(repo or "", function(issues)
+  api.get_issues(repo, function(issues)
     if issues then
-      M.state.issues = issues
       ui.show_issues(issues)
     else
       vim.notify("Erro ao carregar issues", vim.log.levels.ERROR)
@@ -60,18 +35,21 @@ function M.load_issues(repo)
   end)
 end
 
--- Criar nova issue
-function M.create_issue()
-  if not M.state.loaded then
-    vim.notify("GitHub Projects: Plugin não inicializado", vim.log.levels.ERROR)
-    return
-  end
+function M.load_repositories()
+  api.get_repositories(function(repos)
+    if repos then
+      ui.show_repositories(repos)
+    else
+      vim.notify("Erro ao carregar repositórios", vim.log.levels.ERROR)
+    end
+  end)
+end
 
+function M.create_issue()
   ui.create_issue_form(function(issue_data)
     api.create_issue(issue_data, function(success)
       if success then
         vim.notify("Issue criada com sucesso!", vim.log.levels.INFO)
-        M.load_issues() -- Recarregar lista
       else
         vim.notify("Erro ao criar issue", vim.log.levels.ERROR)
       end
@@ -79,30 +57,47 @@ function M.create_issue()
   end)
 end
 
--- Comandos do plugin
+function M.show_projects(args)
+  M.load_projects()
+end
+
+function M.show_issues(args)
+  M.load_issues(args)
+end
+
 function M.setup_commands()
   vim.api.nvim_create_user_command('GitHubProjects', function()
     M.load_projects()
-  end, {})
+  end, { desc = 'Show GitHub Projects' })
 
   vim.api.nvim_create_user_command('GitHubIssues', function(opts)
     M.load_issues(opts.args)
-  end, { nargs = '?' })
+  end, { nargs = '?', desc = 'Show GitHub Issues' })
 
   vim.api.nvim_create_user_command('GitHubCreateIssue', function()
     M.create_issue()
-  end, {})
+  end, { desc = 'Create GitHub Issue' })
+
+  vim.api.nvim_create_user_command('GitHubRepos', function()
+    M.load_repositories()
+  end, { desc = 'Show GitHub Repositories' })
 end
 
--- Atalhos de teclado padrão
 function M.setup_keymaps()
+  local keymaps = config.config.keymaps
   local opts = { noremap = true, silent = true }
 
-  vim.keymap.set('n', '<leader>gp', ':GHProjects<CR>', opts)
-  vim.keymap.set('n', '<leader>gi', ':GHIssues<CR>', opts)
-  vim.keymap.set('n', '<leader>gc', ':GHCreateIssue<CR>', opts)
-end
+  if keymaps.projects then
+    vim.keymap.set('n', keymaps.projects, ':GitHubProjects<CR>', opts)
+  end
 
--- Auto-setup ao carregar
+  if keymaps.issues then
+    vim.keymap.set('n', keymaps.issues, ':GitHubIssues<CR>', opts)
+  end
+
+  if keymaps.create_issue then
+    vim.keymap.set('n', keymaps.create_issue, ':GitHubCreateIssue<CR>', opts)
+  end
+end
 
 return M
