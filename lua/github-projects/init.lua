@@ -65,6 +65,16 @@ function M.show_issues(args)
   M.load_issues(args)
 end
 
+function M.test_connection()
+  api.test_connection(function(success, message)
+    if success then
+      vim.notify("✅ " .. message, vim.log.levels.INFO)
+    else
+      vim.notify("❌ Erro de conexão: " .. message, vim.log.levels.ERROR)
+    end
+  end)
+end
+
 function M.setup_commands()
   vim.api.nvim_create_user_command('GitHubProjects', function()
     M.load_projects()
@@ -81,6 +91,10 @@ function M.setup_commands()
   vim.api.nvim_create_user_command('GitHubRepos', function()
     M.load_repositories()
   end, { desc = 'Show GitHub Repositories' })
+
+  vim.api.nvim_create_user_command('GitHubTest', function()
+    M.test_connection()
+  end, { desc = 'Test GitHub Connection' })
 end
 
 function M.setup_keymaps()
