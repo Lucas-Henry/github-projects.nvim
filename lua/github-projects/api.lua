@@ -32,7 +32,7 @@ local function curl_request(url, headers, data, callback)
     end
 
     local lines = vim.split(output, "\n")
-    local status_code = lines[#lines] -- Última linha
+    local status_code = lines[#lines]
     local json_lines = {}
 
     for i = 1, #lines - 1 do
@@ -43,8 +43,9 @@ local function curl_request(url, headers, data, callback)
 
     local json_data = table.concat(json_lines, "\n")
 
-    print("Status Code:", status_code)
-    print("JSON Data (first 200 chars):", string.sub(json_data or "", 1, 200))
+    -- Debug: mostrar apenas se necessário
+    -- print("Status Code:", status_code)
+    -- print("JSON Data (first 200 chars):", string.sub(json_data or "", 1, 200))
 
     if status_code ~= "200" then
       vim.notify("HTTP Error " .. status_code .. ": " .. (json_data or ""), vim.log.levels.ERROR)
@@ -61,8 +62,8 @@ local function curl_request(url, headers, data, callback)
     if success then
       callback(parsed, nil)
     else
-      vim.notify("Erro ao parsear JSON. Dados recebidos: " .. string.sub(json_data, 1, 500), vim.log.levels.ERROR)
-      callback(nil, "Erro ao parsear JSON: " .. tostring(parsed))
+      vim.notify("Erro ao parsear JSON: " .. tostring(parsed), vim.log.levels.ERROR)
+      callback(nil, "Erro ao parsear JSON")
     end
   end)
 end
@@ -77,9 +78,24 @@ function M.get_projects(callback)
     return
   end
 
-  local query = string.format([[{
-    "query": "query { organization(login: \"%s\") { projectsV2(first: 10) { nodes { id title url number shortDescription } } } }"
-  }]], org)
+  -- Corrigir a query GraphQL - usar escaping correto
+  local query = {
+    query = string.format([[
+      query {
+        organization(login: "%s") {
+          projectsV2(first: 10) {
+            nodes {
+              id
+              title
+              url
+              number
+              shortDescription
+            }
+          }
+        }
+      }
+    ]], org)
+  }
 
   local headers = {
     "Authorization: Bearer " .. token,
@@ -87,9 +103,10 @@ function M.get_projects(callback)
     "Accept: application/vnd.github.v3+json"
   }
 
-  print("Fazendo requisição para projetos da org:", org)
+  -- Usar vim.fn.json_encode para garantir encoding correto
+  local json_data = vim.fn.json_encode(query)
 
-  curl_request("https://api.github.com/graphql", headers, query, function(data, error)
+  curl_request("https://api.github.com/graphql", headers, json_data, function(data, error)
     if error then
       vim.notify("Erro ao carregar projetos: " .. error, vim.log.levels.ERROR)
       callback(nil)
@@ -115,8 +132,7 @@ function M.get_projects(callback)
         callback({})
       end
     else
-      vim.notify("Organização não encontrada ou sem projetos V2. Dados recebidos: " .. vim.inspect(data),
-        vim.log.levels.WARN)
+      vim.notify("Organização não encontrada ou sem projetos V2", vim.log.levels.WARN)
       callback({})
     end
   end)

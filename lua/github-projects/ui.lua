@@ -12,8 +12,11 @@ local function create_float_window(title, lines)
 
   local buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-  vim.api.nvim_buf_set_option(buf, 'modifiable', false)
-  vim.api.nvim_buf_set_option(buf, 'buftype', 'nofile')
+
+  -- Usar a nova API para definir opções de buffer
+  vim.api.nvim_set_option_value('modifiable', false, { buf = buf })
+  vim.api.nvim_set_option_value('buftype', 'nofile', { buf = buf })
+  vim.api.nvim_set_option_value('bufhidden', 'wipe', { buf = buf })
 
   local opts = {
     relative = 'editor',
@@ -29,9 +32,25 @@ local function create_float_window(title, lines)
 
   local win = vim.api.nvim_open_win(buf, true, opts)
 
-  vim.keymap.set('n', '<Esc>', function()
-    vim.api.nvim_win_close(win, true)
-  end, { buffer = buf, nowait = true })
+  -- Adicionar syntax highlighting
+  vim.api.nvim_set_option_value('filetype', 'github-projects', { buf = buf })
+
+  -- Keymaps para o buffer
+  local keymaps = {
+    ['<Esc>'] = function() vim.api.nvim_win_close(win, true) end,
+    ['q'] = function() vim.api.nvim_win_close(win, true) end,
+    ['<CR>'] = function()
+      local line = vim.api.nvim_get_current_line()
+      local url = line:match('URL: (https://[%S]+)')
+      if url then
+        vim.ui.open(url)
+      end
+    end
+  }
+
+  for key, func in pairs(keymaps) do
+    vim.keymap.set('n', key, func, { buffer = buf, nowait = true, silent = true })
+  end
 
   return buf, win
 end
@@ -59,7 +78,10 @@ function M.show_projects(projects)
     table.insert(lines, "")
   end
 
-  table.insert(lines, "Pressione ESC para fechar")
+  table.insert(lines, "")
+  table.insert(lines, "Ações:")
+  table.insert(lines, "  ESC/q - Fechar")
+  table.insert(lines, "  ENTER - Abrir URL (se cursor estiver na linha)")
 
   create_float_window("GitHub Projects V2", lines)
 end
@@ -95,7 +117,10 @@ function M.show_issues(issues)
     table.insert(lines, "")
   end
 
-  table.insert(lines, "Pressione ESC para fechar")
+  table.insert(lines, "")
+  table.insert(lines, "Ações:")
+  table.insert(lines, "  ESC/q - Fechar")
+  table.insert(lines, "  ENTER - Abrir URL (se cursor estiver na linha)")
 
   create_float_window("GitHub Issues", lines)
 end
@@ -166,7 +191,10 @@ function M.show_repositories(repos)
     table.insert(lines, "")
   end
 
-  table.insert(lines, "Pressione ESC para fechar")
+  table.insert(lines, "")
+  table.insert(lines, "Ações:")
+  table.insert(lines, "  ESC/q - Fechar")
+  table.insert(lines, "  ENTER - Abrir URL (se cursor estiver na linha)")
 
   create_float_window("GitHub Repositories", lines)
 end
