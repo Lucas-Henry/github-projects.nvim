@@ -2,6 +2,7 @@ local M = {}
 local config = require('github-projects.config')
 local api = require('github-projects.api')
 local ui = require('github-projects.ui')
+-- etc
 
 -- Estado global do plugin
 M.state = {
@@ -80,15 +81,15 @@ end
 
 -- Comandos do plugin
 function M.setup_commands()
-  vim.api.nvim_create_user_command('GHProjects', function()
+  vim.api.nvim_create_user_command('GitHubProjects', function()
     M.load_projects()
   end, {})
 
-  vim.api.nvim_create_user_command('GHIssues', function(opts)
+  vim.api.nvim_create_user_command('GitHubIssues', function(opts)
     M.load_issues(opts.args)
   end, { nargs = '?' })
 
-  vim.api.nvim_create_user_command('GHCreateIssue', function()
+  vim.api.nvim_create_user_command('GitHubCreateIssue', function()
     M.create_issue()
   end, {})
 end
