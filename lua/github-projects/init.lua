@@ -103,7 +103,5 @@ function M.setup_keymaps()
 end
 
 -- Auto-setup ao carregar
-M.setup_commands()
-M.setup_keymaps()
 
 return M
