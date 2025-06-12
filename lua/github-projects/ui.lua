@@ -75,6 +75,11 @@ function M.show_projects(projects)
 
     table.insert(lines, "   URL: " .. (project.url or "N/A"))
     table.insert(lines, "   ID: " .. (project.id or "N/A"))
+
+    if project.updatedAt then
+      table.insert(lines, "   Atualizado: " .. project.updatedAt)
+    end
+
     table.insert(lines, "")
   end
 
@@ -111,6 +116,10 @@ function M.show_issues(issues)
 
     if issue.assignee then
       table.insert(lines, "   Assignee: " .. issue.assignee.login)
+    end
+
+    if issue.user then
+      table.insert(lines, "   Author: " .. issue.user.login)
     end
 
     table.insert(lines, "   URL: " .. issue.html_url)
@@ -188,6 +197,11 @@ function M.show_repositories(repos)
     table.insert(lines, "   Stars: " .. (repo.stargazers_count or 0))
     table.insert(lines, "   Private: " .. (repo.private and "Sim" or "Não"))
     table.insert(lines, "   URL: " .. repo.html_url)
+
+    if repo.updated_at then
+      table.insert(lines, "   Atualizado: " .. repo.updated_at)
+    end
+
     table.insert(lines, "")
   end
 
