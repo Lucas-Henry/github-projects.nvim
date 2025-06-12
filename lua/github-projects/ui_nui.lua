@@ -672,10 +672,14 @@ function M.show_issue_details(issue)
     buf_options = {
       modifiable = true, -- Temporariamente definido como true
     },
+    enter = true,        -- Garante que o foco vai para o popup
   })
 
   -- Monte o popup primeiro
   GitHubProjectsNuiUI.current_popup:mount()
+
+  -- Garanta que o foco vai para o popup
+  vim.api.nvim_set_current_win(GitHubProjectsNuiUI.current_popup.winid)
 
   -- Agora defina as linhas diretamente usando nvim_buf_set_lines
   local bufnr = GitHubProjectsNuiUI.current_popup.bufnr
