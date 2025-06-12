@@ -6,8 +6,6 @@ local api = require('github-projects.api')
 local popup = require('nui.popup')
 local layout = require('nui.layout')
 local menu = require('nui.menu')
--- Removido: local text = require('nui.text') -- Não compatível com 0.3.0 para formatação de item
--- Removido: local ffi = require('ffi') -- Não necessário sem nui.text
 
 vim.notify("DEBUG: ui_nui.lua file loaded (using nui.nvim)", vim.log.levels.INFO)
 
@@ -32,7 +30,7 @@ function GitHubProjectsNuiUI.close_current_popup()
   end
 end
 
--- Helper para garantir que valores sejam strings seguras (sem ffi)
+-- Helper para garantir que valores sejam strings seguras
 local function safe_tostring(value)
   if value == nil or value == vim.NIL then
     return nil
@@ -70,7 +68,7 @@ local function get_devicon(filename)
   return " "
 end
 
--- Função para exibir projetos (usando nui.menu) - CORRIGIDA
+-- Função para exibir projetos (usando nui.menu)
 function M.show_projects(projects)
   if not projects or #projects == 0 then
     vim.notify("Nenhum projeto encontrado", vim.log.levels.WARN)
@@ -87,11 +85,10 @@ function M.show_projects(projects)
     local updated_at = safe_tostring(project.updatedAt)
 
     local icon = get_devicon("project.md") -- Ícone genérico para projeto
-    -- Usando string simples para o item do menu
     local display_text = string.format("%s %s (#%s) - %s (Atualizado: %s)",
       icon, title, number, short_desc or "Sem descrição", updated_at and updated_at:sub(1, 10) or "N/A")
 
-    table.insert(items, menu.item(display_text, { value = project })) -- Passa string diretamente
+    table.insert(items, menu.item(display_text, { value = project }))
   end
 
   local ui_config = config.get_ui_config()
@@ -114,7 +111,7 @@ function M.show_projects(projects)
       cursorline = true,
     },
   }, {
-    lines = items, -- items agora contêm strings simples
+    lines = items,
     max_width = ui_config.width,
     max_height = ui_config.height,
     keymap = {
@@ -131,7 +128,7 @@ function M.show_projects(projects)
       if item and item.value then
         local project = item.value
         vim.notify("Carregando issues para o projeto: " .. project.title, vim.log.levels.INFO)
-        api.get_issues(nil, function(issues) -- Passa nil para buscar issues da organização
+        api.get_issues(nil, function(issues)
           if issues then
             M.show_issues_kanban(issues, project.title)
           else
@@ -187,7 +184,7 @@ function M.show_issues_kanban(issues, project_title)
   -- Criar menus para cada coluna
   local open_issues_menu = menu({
     border = {
-      style = "none", -- Bordas internas serão controladas pelo layout
+      style = "none",
     },
     win_options = {
       winhighlight = "Normal:GitHubProjectsKanbanItem,CursorLine:GitHubProjectsKanbanSelected",
@@ -197,8 +194,8 @@ function M.show_issues_kanban(issues, project_title)
     },
   }, {
     lines = vim.tbl_map(format_issue_item, open_issues),
-    max_width = math.floor(kanban_width / 2) - 2, -- Ajusta largura para caber no layout
-    max_height = kanban_height - 4,               -- Ajusta altura para caber no layout (considerando headers)
+    max_width = math.floor(kanban_width / 2) - 2,
+    max_height = kanban_height - 4,
     keymap = {
       focus_next = { "j", "<Down>" },
       focus_prev = { "k", "<Up>" },
@@ -242,13 +239,11 @@ function M.show_issues_kanban(issues, project_title)
     border = { style = "none" },
     win_options = { winhighlight = "Normal:GitHubProjectsKanbanHeader" },
   })
-  open_header_popup:set_lines({ "  🟢 OPEN ISSUES" })
 
   local closed_header_popup = popup({
     border = { style = "none" },
     win_options = { winhighlight = "Normal:GitHubProjectsKanbanHeader" },
   })
-  closed_header_popup:set_lines({ "  🔴 CLOSED ISSUES" })
 
   -- Criar o layout Kanban
   GitHubProjectsNuiUI.current_kanban_layout = layout({
@@ -281,6 +276,10 @@ function M.show_issues_kanban(issues, project_title)
   })
 
   GitHubProjectsNuiUI.current_kanban_layout:mount()
+
+  -- AGORA, DEPOIS DE MONTAR O LAYOUT, DEFINIMOS AS LINHAS DOS CABEÇALHOS
+  open_header_popup:set_lines({ "  🟢 OPEN ISSUES" })
+  closed_header_popup:set_lines({ "  🔴 CLOSED ISSUES" })
 
   -- Focar no primeiro menu (Open Issues)
   open_issues_menu:mount()
@@ -470,11 +469,10 @@ function M.show_repositories(repos)
     local icon = get_devicon(repo_name .. "." .. language:lower()) -- Tenta ícone por linguagem
     if icon == " " then icon = get_devicon("folder") end           -- Fallback para ícone de pasta
 
-    -- Usando string simples para o item do menu
     local display_text = string.format("%s %s (%s) - %s | ⭐ %s | %s | Atualizado: %s",
       icon, repo_name, language, description, stars, private_str, updated_at and updated_at:sub(1, 10) or "N/A")
 
-    table.insert(items, menu.item(display_text, { value = repo })) -- Passa string diretamente
+    table.insert(items, menu.item(display_text, { value = repo }))
   end
 
   local ui_config = config.get_ui_config()
@@ -497,7 +495,7 @@ function M.show_repositories(repos)
       cursorline = true,
     },
   }, {
-    lines = items, -- items agora contêm strings simples
+    lines = items,
     max_width = ui_config.width,
     max_height = ui_config.height,
     keymap = {
