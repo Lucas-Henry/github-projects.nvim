@@ -2,32 +2,35 @@ local M = {}
 local config = require('github-projects.config')
 local api = require('github-projects.api')
 
--- Importar módulos do nui.nvim
-local popup = require('nui.popup')
+-- Importar apenas o menu do nui.nvim, que parece funcionar corretamente
 local menu = require('nui.menu')
--- Removido: local layout = require('nui.layout') -- Não compatível com 0.3.0 para layout complexo
 
-vim.notify("DEBUG: ui_nui.lua file loaded (using nui.nvim)", vim.log.levels.INFO)
+vim.notify("DEBUG: ui_nui.lua file loaded (using nui.nvim + native windows)", vim.log.levels.INFO)
 
--- Gerenciador de UI principal para nui.nvim
+-- Gerenciador de UI principal
 local GitHubProjectsNuiUI = {}
-GitHubProjectsNuiUI.current_popup = nil
+GitHubProjectsNuiUI.current_bufnr = nil
+GitHubProjectsNuiUI.current_winnr = nil
 GitHubProjectsNuiUI.current_menu = nil
--- Removido: GitHubProjectsNuiUI.current_kanban_layout = nil
+GitHubProjectsNuiUI.issue_map = nil
 
 function GitHubProjectsNuiUI.close_current_popup()
-  if GitHubProjectsNuiUI.current_popup then
-    GitHubProjectsNuiUI.current_popup:unmount()
-    GitHubProjectsNuiUI.current_popup = nil
+  if GitHubProjectsNuiUI.current_winnr and vim.api.nvim_win_is_valid(GitHubProjectsNuiUI.current_winnr) then
+    vim.api.nvim_win_close(GitHubProjectsNuiUI.current_winnr, true)
+    GitHubProjectsNuiUI.current_winnr = nil
   end
+
+  if GitHubProjectsNuiUI.current_bufnr and vim.api.nvim_buf_is_valid(GitHubProjectsNuiUI.current_bufnr) then
+    vim.api.nvim_buf_delete(GitHubProjectsNuiUI.current_bufnr, { force = true })
+    GitHubProjectsNuiUI.current_bufnr = nil
+  end
+
   if GitHubProjectsNuiUI.current_menu then
     GitHubProjectsNuiUI.current_menu:unmount()
     GitHubProjectsNuiUI.current_menu = nil
   end
-  -- Removido: if GitHubProjectsNuiUI.current_kanban_layout then
-  -- Removido:   GitHubProjectsNuiUI.current_kanban_layout:unmount()
-  -- Removido:   GitHubProjectsNuiUI.current_kanban_layout = nil
-  -- Removido: end
+
+  GitHubProjectsNuiUI.issue_map = nil
 end
 
 -- Helper para garantir que valores sejam strings seguras
@@ -66,6 +69,61 @@ local function get_devicon(filename)
     return icon or " "
   end
   return " "
+end
+
+-- Função para criar uma janela flutuante nativa do Neovim
+local function create_floating_window(opts)
+  local ui_config = config.get_ui_config()
+  local width = opts.width or ui_config.width
+  local height = opts.height or ui_config.height
+  local title = opts.title or "GitHub Projects"
+  local border_style = ui_config.border or "rounded"
+
+  -- Criar buffer
+  local bufnr = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_option(bufnr, 'bufhidden', 'wipe')
+  vim.api.nvim_buf_set_option(bufnr, 'filetype', 'github-projects')
+
+  -- Calcular posição
+  local row = math.floor((vim.o.lines - height) / 2)
+  local col = math.floor((vim.o.columns - width) / 2)
+
+  -- Configurar bordas
+  local border = {}
+  if border_style == "rounded" then
+    border = { "╭", "─", "╮", "│", "╯", "─", "╰", "│" }
+  elseif border_style == "single" then
+    border = { "┌", "─", "┐", "│", "┘", "─", "└", "│" }
+  elseif border_style == "double" then
+    border = { "╔", "═", "╗", "║", "╝", "═", "╚", "║" }
+  else
+    border = { "┌", "─", "┐", "│", "┘", "─", "└", "│" } -- Default to single
+  end
+
+  -- Criar janela
+  local winnr = vim.api.nvim_open_win(bufnr, true, {
+    relative = 'editor',
+    row = row,
+    col = col,
+    width = width,
+    height = height,
+    style = 'minimal',
+    border = border,
+    title = title,
+    title_pos = 'center',
+  })
+
+  -- Configurar opções da janela
+  vim.api.nvim_win_set_option(winnr, 'winhl', 'Normal:Normal,FloatBorder:GitHubProjectsBorder')
+  vim.api.nvim_win_set_option(winnr, 'cursorline', true)
+
+  -- Configurar keymaps para fechar
+  vim.api.nvim_buf_set_keymap(bufnr, 'n', 'q', ':lua require("github-projects.ui_nui").close_current_popup()<CR>',
+    { noremap = true, silent = true })
+  vim.api.nvim_buf_set_keymap(bufnr, 'n', '<Esc>', ':lua require("github-projects.ui_nui").close_current_popup()<CR>',
+    { noremap = true, silent = true })
+
+  return bufnr, winnr
 end
 
 -- Função para exibir projetos (usando nui.menu)
@@ -142,7 +200,7 @@ function M.show_projects(projects)
   GitHubProjectsNuiUI.current_menu:mount()
 end
 
--- Função para exibir issues em um formato Kanban-like (Open/Closed) usando um único popup
+-- Função para exibir issues em um formato Kanban-like usando janela nativa
 function M.show_issues_kanban(issues, project_title)
   if not issues or #issues == 0 then
     vim.notify("Nenhuma issue encontrada", vim.log.levels.WARN)
@@ -215,58 +273,36 @@ function M.show_issues_kanban(issues, project_title)
     current_line_idx = current_line_idx + 1
   end
 
-  GitHubProjectsNuiUI.current_popup = popup({
-    position = "50%",
-    size = {
-      width = popup_width,
-      height = math.min(popup_height, #lines + 4), -- Ajusta altura se houver poucas linhas
-    },
-    border = {
-      style = ui_config.border,
-      text = {
-        top = "Issues para: " .. project_title,
-        top_align = "center",
-      },
-    },
-    win_options = {
-      winhighlight = "Normal:Normal,FloatBorder:GitHubProjectsBorder",
-      cursorline = true,
-      number = false,
-      relativenumber = false,
-    },
+  -- Criar janela flutuante nativa
+  local bufnr, winnr = create_floating_window({
+    title = "Issues para: " .. project_title,
+    width = popup_width,
+    height = math.min(popup_height, #lines + 2), -- Ajusta altura se houver poucas linhas
   })
 
-  GitHubProjectsNuiUI.current_popup:mount()
-  GitHubProjectsNuiUI.current_popup:set_lines(lines)
-  GitHubProjectsNuiUI.current_popup.issue_map = issue_map -- Armazena o mapa de issues
+  -- Armazenar referências
+  GitHubProjectsNuiUI.current_bufnr = bufnr
+  GitHubProjectsNuiUI.current_winnr = winnr
+  GitHubProjectsNuiUI.issue_map = issue_map
+
+  -- Definir linhas no buffer
+  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
 
   -- Keymap para selecionar issue
-  vim.api.nvim_buf_set_keymap(GitHubProjectsNuiUI.current_popup.bufnr, 'n', '<CR>',
+  vim.api.nvim_buf_set_keymap(bufnr, 'n', '<CR>',
     ":lua require('github-projects.ui_nui')._handle_issue_selection_from_kanban()<CR>",
     { noremap = true, silent = true })
-
-  -- Keymaps para fechar
-  vim.api.nvim_buf_set_keymap(GitHubProjectsNuiUI.current_popup.bufnr, 'n', 'q',
-    ":lua require('github-projects.ui_nui').close_current_popup()<CR>",
-    { noremap = true, silent = true })
-  vim.api.nvim_buf_set_keymap(GitHubProjectsNuiUI.current_popup.bufnr, 'n', '<Esc>',
-    ":lua require('github-projects.ui_nui').close_current_popup()<CR>",
-    { noremap = true, silent = true })
-
-  -- Remove keymaps de navegação entre colunas, pois não há colunas separadas
-  GitHubProjectsNuiUI.kanban_menus = nil -- Limpa a referência
 end
 
--- Função auxiliar para lidar com a seleção de issues no Kanban (ajustada para um único popup)
+-- Função auxiliar para lidar com a seleção de issues no Kanban
 function M._handle_issue_selection_from_kanban()
-  if not GitHubProjectsNuiUI.current_popup or not GitHubProjectsNuiUI.current_popup.issue_map then
-    vim.notify("Erro: Popup de Kanban não encontrado.", vim.log.levels.ERROR)
+  if not GitHubProjectsNuiUI.issue_map then
+    vim.notify("Erro: Mapa de issues não encontrado.", vim.log.levels.ERROR)
     return
   end
 
-  local current_win = vim.api.nvim_get_current_win()
-  local cursor_line = vim.api.nvim_win_get_cursor(current_win)[1] -- Linha base 1
-  local selected_issue = GitHubProjectsNuiUI.current_popup.issue_map[cursor_line]
+  local cursor_line = vim.api.nvim_win_get_cursor(0)[1] -- Linha base 1
+  local selected_issue = GitHubProjectsNuiUI.issue_map[cursor_line]
 
   if selected_issue then
     M.show_issue_details(selected_issue)
@@ -275,18 +311,13 @@ function M._handle_issue_selection_from_kanban()
   end
 end
 
--- Função auxiliar para focar em uma coluna específica do Kanban (removida, pois não há colunas separadas)
--- function M._focus_kanban_column(column_name)
---   -- Esta função não é mais necessária com um único popup
--- end
-
--- Função para exibir detalhes de uma issue (usando nui.popup)
+-- Função para exibir detalhes de uma issue
 function M.show_issue_details(issue)
   GitHubProjectsNuiUI.close_current_popup()
 
   local lines = {}
 
-  -- Título e número (usando strings simples)
+  -- Título e número
   table.insert(lines, "=== DETALHES DA ISSUE ===")
   table.insert(lines, "")
   table.insert(lines, string.format("Título: %s", safe_tostring(issue.title) or "N/A"))
@@ -327,40 +358,24 @@ function M.show_issue_details(issue)
 
   local ui_config = config.get_ui_config()
 
-  GitHubProjectsNuiUI.current_popup = popup({
-    position = "50%",
-    size = {
-      width = ui_config.width,
-      height = math.min(ui_config.height, #lines + 4),
-    },
-    border = {
-      style = ui_config.border,
-      text = {
-        top = "Issue #" .. safe_tostring(issue.number),
-        top_align = "center",
-      },
-    },
-    win_options = {
-      winhighlight = "Normal:Normal,FloatBorder:GitHubProjectsBorder",
-      cursorline = true,
-    },
+  -- Criar janela flutuante nativa
+  local bufnr, winnr = create_floating_window({
+    title = "Issue #" .. safe_tostring(issue.number),
+    width = ui_config.width,
+    height = math.min(ui_config.height, #lines + 2),
   })
 
-  GitHubProjectsNuiUI.current_popup:mount()
-  GitHubProjectsNuiUI.current_popup:set_lines(lines)
+  -- Armazenar referências
+  GitHubProjectsNuiUI.current_bufnr = bufnr
+  GitHubProjectsNuiUI.current_winnr = winnr
+
+  -- Definir linhas no buffer
+  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
 
   -- Keymap para abrir URL
-  vim.api.nvim_buf_set_keymap(GitHubProjectsNuiUI.current_popup.bufnr, 'n', 'o',
+  vim.api.nvim_buf_set_keymap(bufnr, 'n', 'o',
     string.format(":lua vim.ui.open('%s'); require('github-projects.ui_nui').close_current_popup()<CR>",
       safe_tostring(issue.html_url)),
-    { noremap = true, silent = true })
-
-  -- Keymap para fechar
-  vim.api.nvim_buf_set_keymap(GitHubProjectsNuiUI.current_popup.bufnr, 'n', 'q',
-    ":lua require('github-projects.ui_nui').close_current_popup()<CR>",
-    { noremap = true, silent = true })
-  vim.api.nvim_buf_set_keymap(GitHubProjectsNuiUI.current_popup.bufnr, 'n', '<Esc>',
-    ":lua require('github-projects.ui_nui').close_current_popup()<CR>",
     { noremap = true, silent = true })
 end
 
