@@ -723,38 +723,40 @@ function M.show_issue_details(issue)
     ":lua require('github-projects.ui_nui').close_current_popup()<CR>",
     { noremap = true, silent = true })
 
+  -- Substitua os keymaps para navegação na função show_issue_details com os seguintes:
+
   -- Keymaps para navegação
   vim.api.nvim_buf_set_keymap(bufnr, 'n', 'j',
-    ":lua vim.api.nvim_win_call(vim.api.nvim_get_current_win(), function() vim.cmd('normal! j') end)<CR>",
+    "j",
     { noremap = true, silent = true })
 
   vim.api.nvim_buf_set_keymap(bufnr, 'n', 'k',
-    ":lua vim.api.nvim_win_call(vim.api.nvim_get_current_win(), function() vim.cmd('normal! k') end)<CR>",
+    "k",
     { noremap = true, silent = true })
 
   vim.api.nvim_buf_set_keymap(bufnr, 'n', 'h',
-    ":lua vim.api.nvim_win_call(vim.api.nvim_get_current_win(), function() vim.cmd('normal! h') end)<CR>",
+    "h",
     { noremap = true, silent = true })
 
   vim.api.nvim_buf_set_keymap(bufnr, 'n', 'l',
-    ":lua vim.api.nvim_win_call(vim.api.nvim_get_current_win(), function() vim.cmd('normal! l') end)<CR>",
+    "l",
     { noremap = true, silent = true })
 
   -- Adicionar keymaps para scroll de página
   vim.api.nvim_buf_set_keymap(bufnr, 'n', '<C-f>',
-    ":lua vim.api.nvim_win_call(vim.api.nvim_get_current_win(), function() vim.cmd('normal! <C-f>') end)<CR>",
+    "<C-f>",
     { noremap = true, silent = true })
 
   vim.api.nvim_buf_set_keymap(bufnr, 'n', '<C-b>',
-    ":lua vim.api.nvim_win_call(vim.api.nvim_get_current_win(), function() vim.cmd('normal! <C-b>') end)<CR>",
+    "<C-b>",
     { noremap = true, silent = true })
 
   vim.api.nvim_buf_set_keymap(bufnr, 'n', '<C-d>',
-    ":lua vim.api.nvim_win_call(vim.api.nvim_get_current_win(), function() vim.cmd('normal! <C-d>') end)<CR>",
+    "<C-d>",
     { noremap = true, silent = true })
 
   vim.api.nvim_buf_set_keymap(bufnr, 'n', '<C-u>',
-    ":lua vim.api.nvim_win_call(vim.api.nvim_get_current_win(), function() vim.cmd('normal! <C-u>') end)<CR>",
+    "<C-u>",
     { noremap = true, silent = true })
 end
 
