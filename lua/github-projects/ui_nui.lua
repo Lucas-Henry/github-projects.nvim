@@ -6,7 +6,6 @@ local api = require('github-projects.api')
 local popup = require('nui.popup')
 local layout = require('nui.layout')
 local menu = require('nui.menu')
-local event = require('nui.utils.event') -- Esta linha causou o erro antes
 
 vim.notify("DEBUG: ui_nui.lua file loaded (using nui.nvim)", vim.log.levels.INFO)
 
