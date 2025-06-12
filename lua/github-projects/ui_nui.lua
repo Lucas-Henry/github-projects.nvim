@@ -4,8 +4,8 @@ local api = require('github-projects.api')
 
 -- Importar módulos do nui.nvim
 local popup = require('nui.popup')
-local layout = require('nui.layout')
 local menu = require('nui.menu')
+-- Removido: local layout = require('nui.layout') -- Não compatível com 0.3.0 para layout complexo
 
 vim.notify("DEBUG: ui_nui.lua file loaded (using nui.nvim)", vim.log.levels.INFO)
 
@@ -13,7 +13,7 @@ vim.notify("DEBUG: ui_nui.lua file loaded (using nui.nvim)", vim.log.levels.INFO
 local GitHubProjectsNuiUI = {}
 GitHubProjectsNuiUI.current_popup = nil
 GitHubProjectsNuiUI.current_menu = nil
-GitHubProjectsNuiUI.current_kanban_layout = nil -- Para o layout do Kanban
+-- Removido: GitHubProjectsNuiUI.current_kanban_layout = nil
 
 function GitHubProjectsNuiUI.close_current_popup()
   if GitHubProjectsNuiUI.current_popup then
@@ -24,10 +24,10 @@ function GitHubProjectsNuiUI.close_current_popup()
     GitHubProjectsNuiUI.current_menu:unmount()
     GitHubProjectsNuiUI.current_menu = nil
   end
-  if GitHubProjectsNuiUI.current_kanban_layout then
-    GitHubProjectsNuiUI.current_kanban_layout:unmount()
-    GitHubProjectsNuiUI.current_kanban_layout = nil
-  end
+  -- Removido: if GitHubProjectsNuiUI.current_kanban_layout then
+  -- Removido:   GitHubProjectsNuiUI.current_kanban_layout:unmount()
+  -- Removido:   GitHubProjectsNuiUI.current_kanban_layout = nil
+  -- Removido: end
 end
 
 -- Helper para garantir que valores sejam strings seguras
@@ -142,7 +142,7 @@ function M.show_projects(projects)
   GitHubProjectsNuiUI.current_menu:mount()
 end
 
--- Função para exibir issues em um formato Kanban-like (Open/Closed) usando nui.layout
+-- Função para exibir issues em um formato Kanban-like (Open/Closed) usando um único popup
 function M.show_issues_kanban(issues, project_title)
   if not issues or #issues == 0 then
     vim.notify("Nenhuma issue encontrada", vim.log.levels.WARN)
@@ -162,7 +162,16 @@ function M.show_issues_kanban(issues, project_title)
     end
   end
 
-  local function format_issue_item(issue)
+  local ui_config = config.get_ui_config()
+  local popup_width = ui_config.width
+  local popup_height = ui_config.height
+
+  local lines = {}
+  local issue_map = {} -- Mapeia o índice da linha para a issue real
+  local current_line_idx = 0
+
+  -- Helper para adicionar linha e mapear issue
+  local function add_issue_line(issue)
     local state_icon = issue.state == "open" and "🟢" or "🔴"
     local number = safe_tostring(issue.number) or "N/A"
     local title = safe_tostring(issue.title) or "Sem título"
@@ -174,83 +183,43 @@ function M.show_issues_kanban(issues, project_title)
       end
       labels_str = " [" .. table.concat(labels, ", ") .. "]"
     end
-    return menu.item(string.format("%s #%s: %s%s", state_icon, number, title, labels_str), { value = issue })
+    local line_text = string.format("%s #%s: %s%s", state_icon, number, title, labels_str)
+    table.insert(lines, line_text)
+    current_line_idx = current_line_idx + 1
+    issue_map[current_line_idx] = issue
   end
 
-  local ui_config = config.get_ui_config()
-  local kanban_width = ui_config.width
-  local kanban_height = ui_config.height
+  -- Adiciona cabeçalho de Open Issues
+  table.insert(lines, "=== 🟢 OPEN ISSUES " .. string.rep("=", math.max(0, popup_width - 22))) -- Preenche com '='
+  current_line_idx = current_line_idx + 1
+  if #open_issues > 0 then
+    for _, issue in ipairs(open_issues) do
+      add_issue_line(issue)
+    end
+  else
+    table.insert(lines, "  (Nenhuma issue aberta)")
+    current_line_idx = current_line_idx + 1
+  end
+  table.insert(lines, "") -- Linha em branco para separação
+  current_line_idx = current_line_idx + 1
 
-  -- Criar menus para cada coluna
-  local open_issues_menu = menu({
-    border = {
-      style = "none",
-    },
-    win_options = {
-      winhighlight = "Normal:GitHubProjectsKanbanItem,CursorLine:GitHubProjectsKanbanSelected",
-      cursorline = true,
-      number = false,
-      relativenumber = false,
-    },
-  }, {
-    lines = vim.tbl_map(format_issue_item, open_issues),
-    max_width = math.floor(kanban_width / 2) - 2,
-    max_height = kanban_height - 4,
-    keymap = {
-      focus_next = { "j", "<Down>" },
-      focus_prev = { "k", "<Up>" },
-      submit = { "<CR>" },
-    },
-    on_submit = function(item)
-      if item and item.value then
-        M.show_issue_details(item.value)
-      end
-    end,
-  })
+  -- Adiciona cabeçalho de Closed Issues
+  table.insert(lines, "=== 🔴 CLOSED ISSUES " .. string.rep("=", math.max(0, popup_width - 23))) -- Preenche com '='
+  current_line_idx = current_line_idx + 1
+  if #closed_issues > 0 then
+    for _, issue in ipairs(closed_issues) do
+      add_issue_line(issue)
+    end
+  else
+    table.insert(lines, "  (Nenhuma issue fechada)")
+    current_line_idx = current_line_idx + 1
+  end
 
-  local closed_issues_menu = menu({
-    border = {
-      style = "none",
-    },
-    win_options = {
-      winhighlight = "Normal:GitHubProjectsKanbanItem,CursorLine:GitHubProjectsKanbanSelected",
-      cursorline = true,
-      number = false,
-      relativenumber = false,
-    },
-  }, {
-    lines = vim.tbl_map(format_issue_item, closed_issues),
-    max_width = math.floor(kanban_width / 2) - 2,
-    max_height = kanban_height - 4,
-    keymap = {
-      focus_next = { "j", "<Down>" },
-      focus_prev = { "k", "<Up>" },
-      submit = { "<CR>" },
-    },
-    on_submit = function(item)
-      if item and item.value then
-        M.show_issue_details(item.value)
-      end
-    end,
-  })
-
-  -- Criar popups para os cabeçalhos das colunas
-  local open_header_popup = popup({
-    border = { style = "none" },
-    win_options = { winhighlight = "Normal:GitHubProjectsKanbanHeader" },
-  })
-
-  local closed_header_popup = popup({
-    border = { style = "none" },
-    win_options = { winhighlight = "Normal:GitHubProjectsKanbanHeader" },
-  })
-
-  -- Criar o layout Kanban
-  GitHubProjectsNuiUI.current_kanban_layout = layout({
+  GitHubProjectsNuiUI.current_popup = popup({
     position = "50%",
     size = {
-      width = kanban_width,
-      height = kanban_height,
+      width = popup_width,
+      height = math.min(popup_height, #lines + 4), -- Ajusta altura se houver poucas linhas
     },
     border = {
       style = ui_config.border,
@@ -261,65 +230,55 @@ function M.show_issues_kanban(issues, project_title)
     },
     win_options = {
       winhighlight = "Normal:Normal,FloatBorder:GitHubProjectsBorder",
+      cursorline = true,
+      number = false,
+      relativenumber = false,
     },
-  }, {
-    layout.vstack({
-      layout.hstack({
-        layout.box(open_header_popup, { size = { width = math.floor(kanban_width / 2) } }),
-        layout.box(closed_header_popup, { size = { width = math.floor(kanban_width / 2) } }),
-      }),
-      layout.hstack({
-        layout.box(open_issues_menu, { size = { width = math.floor(kanban_width / 2) } }),
-        layout.box(closed_issues_menu, { size = { width = math.floor(kanban_width / 2) } }),
-      }),
-    }),
   })
 
-  GitHubProjectsNuiUI.current_kanban_layout:mount()
+  GitHubProjectsNuiUI.current_popup:mount()
+  GitHubProjectsNuiUI.current_popup:set_lines(lines)
+  GitHubProjectsNuiUI.current_popup.issue_map = issue_map -- Armazena o mapa de issues
 
-  -- AGORA, DEPOIS DE MONTAR O LAYOUT, DEFINIMOS AS LINHAS DOS CABEÇALHOS
-  open_header_popup:set_lines({ "  🟢 OPEN ISSUES" })
-  closed_header_popup:set_lines({ "  🔴 CLOSED ISSUES" })
-
-  -- Focar no primeiro menu (Open Issues)
-  open_issues_menu:mount()
-  open_issues_menu:focus()
-
-  -- Keymaps para navegação entre colunas
-  vim.api.nvim_buf_set_keymap(open_issues_menu.bufnr, 'n', '<Right>',
-    ":lua require('github-projects.ui_nui')._focus_kanban_column('closed')<CR>",
-    { noremap = true, silent = true })
-  vim.api.nvim_buf_set_keymap(closed_issues_menu.bufnr, 'n', '<Left>',
-    ":lua require('github-projects.ui_nui')._focus_kanban_column('open')<CR>",
+  -- Keymap para selecionar issue
+  vim.api.nvim_buf_set_keymap(GitHubProjectsNuiUI.current_popup.bufnr, 'n', '<CR>',
+    ":lua require('github-projects.ui_nui')._handle_issue_selection_from_kanban()<CR>",
     { noremap = true, silent = true })
 
   -- Keymaps para fechar
-  vim.api.nvim_buf_set_keymap(open_issues_menu.bufnr, 'n', 'q',
+  vim.api.nvim_buf_set_keymap(GitHubProjectsNuiUI.current_popup.bufnr, 'n', 'q',
     ":lua require('github-projects.ui_nui').close_current_popup()<CR>",
     { noremap = true, silent = true })
-  vim.api.nvim_buf_set_keymap(open_issues_menu.bufnr, 'n', '<Esc>',
-    ":lua require('github-projects.ui_nui').close_current_popup()<CR>",
-    { noremap = true, silent = true })
-  vim.api.nvim_buf_set_keymap(closed_issues_menu.bufnr, 'n', 'q',
-    ":lua require('github-projects.ui_nui').close_current_popup()<CR>",
-    { noremap = true, silent = true })
-  vim.api.nvim_buf_set_keymap(closed_issues_menu.bufnr, 'n', '<Esc>',
+  vim.api.nvim_buf_set_keymap(GitHubProjectsNuiUI.current_popup.bufnr, 'n', '<Esc>',
     ":lua require('github-projects.ui_nui').close_current_popup()<CR>",
     { noremap = true, silent = true })
 
-  -- Armazenar referências para os menus para navegação
-  GitHubProjectsNuiUI.kanban_menus = {
-    open = open_issues_menu,
-    closed = closed_issues_menu,
-  }
+  -- Remove keymaps de navegação entre colunas, pois não há colunas separadas
+  GitHubProjectsNuiUI.kanban_menus = nil -- Limpa a referência
 end
 
--- Função auxiliar para focar em uma coluna específica do Kanban
-function M._focus_kanban_column(column_name)
-  if GitHubProjectsNuiUI.kanban_menus and GitHubProjectsNuiUI.kanban_menus[column_name] then
-    GitHubProjectsNuiUI.kanban_menus[column_name]:focus()
+-- Função auxiliar para lidar com a seleção de issues no Kanban (ajustada para um único popup)
+function M._handle_issue_selection_from_kanban()
+  if not GitHubProjectsNuiUI.current_popup or not GitHubProjectsNuiUI.current_popup.issue_map then
+    vim.notify("Erro: Popup de Kanban não encontrado.", vim.log.levels.ERROR)
+    return
+  end
+
+  local current_win = vim.api.nvim_get_current_win()
+  local cursor_line = vim.api.nvim_win_get_cursor(current_win)[1] -- Linha base 1
+  local selected_issue = GitHubProjectsNuiUI.current_popup.issue_map[cursor_line]
+
+  if selected_issue then
+    M.show_issue_details(selected_issue)
+  else
+    vim.notify("Nenhuma issue selecionada nesta linha.", vim.log.levels.WARN)
   end
 end
+
+-- Função auxiliar para focar em uma coluna específica do Kanban (removida, pois não há colunas separadas)
+-- function M._focus_kanban_column(column_name)
+--   -- Esta função não é mais necessária com um único popup
+-- end
 
 -- Função para exibir detalhes de uma issue (usando nui.popup)
 function M.show_issue_details(issue)
@@ -467,7 +426,7 @@ function M.show_repositories(repos)
     local updated_at = safe_tostring(repo.updated_at)
 
     local icon = get_devicon(repo_name .. "." .. language:lower()) -- Tenta ícone por linguagem
-    if icon == " " then icon = get_devicon("folder") end           -- Fallback para ícone de pasta
+    if icon == " " then icon = get_devicon("folder") end           -- Fallback para ícone de folder
 
     local display_text = string.format("%s %s (%s) - %s | ⭐ %s | %s | Atualizado: %s",
       icon, repo_name, language, description, stars, private_str, updated_at and updated_at:sub(1, 10) or "N/A")
