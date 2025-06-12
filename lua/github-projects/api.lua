@@ -219,7 +219,8 @@ function M.get_issues(repo, callback)
   if repo and repo ~= "" then
     url = string.format("https://api.github.com/repos/%s/%s/issues?state=all&per_page=50", org, repo)
   else
-    url = string.format("https://api.github.com/search/issues?q=org:%s&per_page=50", org)
+    -- CORREÇÃO: Adicionar 'is:issue' à query de busca
+    url = string.format("https://api.github.com/search/issues?q=org:%s+is:issue&per_page=50", org)
   end
 
   local headers = {
