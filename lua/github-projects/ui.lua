@@ -4,6 +4,10 @@ local api = require('github-projects.api')
 
 vim.notify("DEBUG: ui.lua file loaded", vim.log.levels.INFO)
 vim.notify("DEBUG: Attempting to require nui in ui.lua", vim.log.levels.INFO)
+
+-- NOVA LINHA DE DEBUG CRÍTICA
+vim.notify("DEBUG: package.path before nui require: " .. package.path, vim.log.levels.INFO)
+
 local nui = require('nui')
 vim.notify("DEBUG: nui required successfully in ui.lua", vim.log.levels.INFO)
 
