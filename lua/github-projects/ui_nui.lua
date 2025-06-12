@@ -569,7 +569,7 @@ function M.show_issue_details(issue)
   GitHubProjectsNuiUI.close_current_popup()
 
   local lines = {}
-  local width = 62
+  local width = 80
 
   -- Title and header
   table.insert(lines, "╭" .. string.rep("─", width) .. "╮")
@@ -666,6 +666,8 @@ function M.show_issue_details(issue)
     border = "none",
     win_options = {
       winhighlight = "Normal:Normal",
+      wrap = false,  -- Desabilitar quebra de linha para melhor visualização
+      scrolloff = 5, -- Manter 5 linhas visíveis ao rolar
     },
     buf_options = {
       modifiable = true, -- Temporariamente definido como true
@@ -715,6 +717,40 @@ function M.show_issue_details(issue)
     { noremap = true, silent = true })
   vim.api.nvim_buf_set_keymap(bufnr, 'n', '<Esc>',
     ":lua require('github-projects.ui_nui').close_current_popup()<CR>",
+    { noremap = true, silent = true })
+
+  -- Keymaps para navegação
+  vim.api.nvim_buf_set_keymap(bufnr, 'n', 'j',
+    ":lua vim.api.nvim_win_call(vim.api.nvim_get_current_win(), function() vim.cmd('normal! j') end)<CR>",
+    { noremap = true, silent = true })
+
+  vim.api.nvim_buf_set_keymap(bufnr, 'n', 'k',
+    ":lua vim.api.nvim_win_call(vim.api.nvim_get_current_win(), function() vim.cmd('normal! k') end)<CR>",
+    { noremap = true, silent = true })
+
+  vim.api.nvim_buf_set_keymap(bufnr, 'n', 'h',
+    ":lua vim.api.nvim_win_call(vim.api.nvim_get_current_win(), function() vim.cmd('normal! h') end)<CR>",
+    { noremap = true, silent = true })
+
+  vim.api.nvim_buf_set_keymap(bufnr, 'n', 'l',
+    ":lua vim.api.nvim_win_call(vim.api.nvim_get_current_win(), function() vim.cmd('normal! l') end)<CR>",
+    { noremap = true, silent = true })
+
+  -- Adicionar keymaps para scroll de página
+  vim.api.nvim_buf_set_keymap(bufnr, 'n', '<C-f>',
+    ":lua vim.api.nvim_win_call(vim.api.nvim_get_current_win(), function() vim.cmd('normal! <C-f>') end)<CR>",
+    { noremap = true, silent = true })
+
+  vim.api.nvim_buf_set_keymap(bufnr, 'n', '<C-b>',
+    ":lua vim.api.nvim_win_call(vim.api.nvim_get_current_win(), function() vim.cmd('normal! <C-b>') end)<CR>",
+    { noremap = true, silent = true })
+
+  vim.api.nvim_buf_set_keymap(bufnr, 'n', '<C-d>',
+    ":lua vim.api.nvim_win_call(vim.api.nvim_get_current_win(), function() vim.cmd('normal! <C-d>') end)<CR>",
+    { noremap = true, silent = true })
+
+  vim.api.nvim_buf_set_keymap(bufnr, 'n', '<C-u>',
+    ":lua vim.api.nvim_win_call(vim.api.nvim_get_current_win(), function() vim.cmd('normal! <C-u>') end)<CR>",
     { noremap = true, silent = true })
 end
 
