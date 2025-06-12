@@ -37,22 +37,27 @@ local function create_floating_window(opts)
     col = col,
     width = width,
     height = height,
-    border = ui_config.border, -- 'rounded', 'single', 'double'
+    border = {
+      style = ui_config.border, -- 'rounded', 'single', 'double'
+      text = {
+        top = title,            -- O título é definido aqui!
+        top_align = "center",
+      },
+    },
     style = 'minimal',
     noautocmd = true,
     focusable = true,
     zindex = 100,
   })
 
+  -- REMOVIDO: vim.api.nvim_win_set_option(win_id, 'title', title)
+  -- REMOVIDO: vim.api.nvim_win_set_option(win_id, 'title_pos', 'center')
+
   -- Set window options
   vim.api.nvim_win_set_option(win_id, 'winhighlight', 'Normal:Normal,FloatBorder:GitHubProjectsBorder')
   vim.api.nvim_win_set_option(win_id, 'cursorline', false)
   vim.api.nvim_win_set_option(win_id, 'number', false)
   vim.api.nvim_win_set_option(win_id, 'relativenumber', false)
-
-  -- Set border title
-  vim.api.nvim_win_set_option(win_id, 'title', title)
-  vim.api.nvim_win_set_option(win_id, 'title_pos', 'center')
 
   -- Map <Esc> to close
   vim.api.nvim_buf_set_keymap(buf, 'n', 'q', ':close<CR>', { noremap = true, silent = true })
