@@ -6,8 +6,8 @@ local api = require('github-projects.api')
 local popup = require('nui.popup')
 local layout = require('nui.layout')
 local menu = require('nui.menu')
-local text = require('nui.text') -- Para formatação de texto rica
-local ffi = require('ffi')       -- Para usar ffi.string para strings seguras
+-- Removido: local text = require('nui.text') -- Não compatível com 0.3.0 para formatação de item
+-- Removido: local ffi = require('ffi') -- Não necessário sem nui.text
 
 vim.notify("DEBUG: ui_nui.lua file loaded (using nui.nvim)", vim.log.levels.INFO)
 
@@ -32,7 +32,7 @@ function GitHubProjectsNuiUI.close_current_popup()
   end
 end
 
--- Helper para garantir que valores sejam strings seguras
+-- Helper para garantir que valores sejam strings seguras (sem ffi)
 local function safe_tostring(value)
   if value == nil or value == vim.NIL then
     return nil
@@ -40,8 +40,7 @@ local function safe_tostring(value)
   if type(value) == "string" then
     return value
   end
-  -- Usar ffi.string para garantir que a string seja válida para Neovim
-  return ffi.string(tostring(value))
+  return tostring(value)
 end
 
 -- Highlight groups para a UI
@@ -56,8 +55,6 @@ local function setup_highlights()
   vim.api.nvim_set_hl(0, "GitHubProjectsClosed", { fg = "#E06C75", bg = "NONE", bold = true })
   vim.api.nvim_set_hl(0, "GitHubProjectsHeader", { fg = "#61AFEF", bg = "#282C34", bold = true })
   vim.api.nvim_set_hl(0, "GitHubProjectsKanbanHeader", { fg = "#61AFEF", bg = "#282C34", bold = true, underline = true })
-  vim.api.nvim_set_hl(0, "GitHubProjectsKanbanOpen", { fg = "#98C379", bg = "#282C34" })
-  vim.api.nvim_set_hl(0, "GitHubProjectsKanbanClosed", { fg = "#E06C75", bg = "#282C34" })
   vim.api.nvim_set_hl(0, "GitHubProjectsKanbanItem", { fg = "#ABB2BF", bg = "NONE" })
   vim.api.nvim_set_hl(0, "GitHubProjectsKanbanSelected", { fg = "#C678DD", bg = "#3E4452", bold = true })
 end
@@ -73,7 +70,7 @@ local function get_devicon(filename)
   return " "
 end
 
--- Função para exibir projetos (usando nui.menu)
+-- Função para exibir projetos (usando nui.menu) - CORRIGIDA
 function M.show_projects(projects)
   if not projects or #projects == 0 then
     vim.notify("Nenhum projeto encontrado", vim.log.levels.WARN)
@@ -90,14 +87,11 @@ function M.show_projects(projects)
     local updated_at = safe_tostring(project.updatedAt)
 
     local icon = get_devicon("project.md") -- Ícone genérico para projeto
-    local display_text = string.format("%s %s (#%s)", icon, title, number)
-    local info_text = string.format("  %s (Atualizado: %s)", short_desc or "Sem descrição",
-      updated_at and updated_at:sub(1, 10) or "N/A")
+    -- Usando string simples para o item do menu
+    local display_text = string.format("%s %s (#%s) - %s (Atualizado: %s)",
+      icon, title, number, short_desc or "Sem descrição", updated_at and updated_at:sub(1, 10) or "N/A")
 
-    table.insert(items, menu.item({
-      text.new(display_text, "GitHubProjectsTitle"),
-      text.new(info_text, "GitHubProjectsInfo"),
-    }, { value = project }))
+    table.insert(items, menu.item(display_text, { value = project })) -- Passa string diretamente
   end
 
   local ui_config = config.get_ui_config()
@@ -117,10 +111,10 @@ function M.show_projects(projects)
     },
     win_options = {
       winhighlight = "Normal:Normal,FloatBorder:GitHubProjectsBorder",
-      cursorline = true, -- Garante que a linha do cursor seja visível
+      cursorline = true,
     },
   }, {
-    lines = items,
+    lines = items, -- items agora contêm strings simples
     max_width = ui_config.width,
     max_height = ui_config.height,
     keymap = {
@@ -204,7 +198,7 @@ function M.show_issues_kanban(issues, project_title)
   }, {
     lines = vim.tbl_map(format_issue_item, open_issues),
     max_width = math.floor(kanban_width / 2) - 2, -- Ajusta largura para caber no layout
-    max_height = kanban_height - 4,             -- Ajusta altura para caber no layout (considerando headers)
+    max_height = kanban_height - 4,               -- Ajusta altura para caber no layout (considerando headers)
     keymap = {
       focus_next = { "j", "<Down>" },
       focus_prev = { "k", "<Up>" },
@@ -334,14 +328,12 @@ function M.show_issue_details(issue)
 
   local lines = {}
 
-  -- Título e número
-  table.insert(lines, text.new("=== DETALHES DA ISSUE ===", "GitHubProjectsHeader"))
+  -- Título e número (usando strings simples)
+  table.insert(lines, "=== DETALHES DA ISSUE ===")
   table.insert(lines, "")
-  table.insert(lines, text.new(string.format("Título: %s", safe_tostring(issue.title) or "N/A"), "GitHubProjectsTitle"))
-  table.insert(lines, text.new(string.format("Número: #%s", safe_tostring(issue.number) or "N/A"), "GitHubProjectsInfo"))
-  table.insert(lines,
-    text.new(string.format("Estado: %s", safe_tostring(issue.state) or "N/A"),
-      issue.state == "open" and "GitHubProjectsOpen" or "GitHubProjectsClosed"))
+  table.insert(lines, string.format("Título: %s", safe_tostring(issue.title) or "N/A"))
+  table.insert(lines, string.format("Número: #%s", safe_tostring(issue.number) or "N/A"))
+  table.insert(lines, string.format("Estado: %s", safe_tostring(issue.state) or "N/A"))
 
   -- Labels
   if issue.labels and #issue.labels > 0 then
@@ -349,31 +341,31 @@ function M.show_issue_details(issue)
     for _, label in ipairs(issue.labels) do
       table.insert(labels, safe_tostring(label.name))
     end
-    table.insert(lines, text.new("Labels: " .. table.concat(labels, ", "), "GitHubProjectsLabel"))
+    table.insert(lines, "Labels: " .. table.concat(labels, ", "))
   end
 
   -- Assignee e Autor
   if issue.assignee and issue.assignee.login then
-    table.insert(lines, text.new("Assignee: " .. safe_tostring(issue.assignee.login), "GitHubProjectsInfo"))
+    table.insert(lines, "Assignee: " .. safe_tostring(issue.assignee.login))
   end
   if issue.user and issue.user.login then
-    table.insert(lines, text.new("Autor: " .. safe_tostring(issue.user.login), "GitHubProjectsInfo"))
+    table.insert(lines, "Autor: " .. safe_tostring(issue.user.login))
   end
 
   table.insert(lines, "")
-  table.insert(lines, text.new("URL: " .. safe_tostring(issue.html_url) or "N/A", "GitHubProjectsURL"))
+  table.insert(lines, "URL: " .. safe_tostring(issue.html_url) or "N/A")
   table.insert(lines, "")
-  table.insert(lines, text.new("Descrição:", "GitHubProjectsHeader"))
+  table.insert(lines, "Descrição:")
   table.insert(lines, "")
 
   local body_lines = vim.split(safe_tostring(issue.body) or "Sem descrição.", "\n")
   for _, line in ipairs(body_lines) do
-    table.insert(lines, text.new(line, "GitHubProjectsInfo"))
+    table.insert(lines, line)
   end
 
   -- Adiciona instrução para abrir URL
   table.insert(lines, "")
-  table.insert(lines, text.new("Pressione 'o' para abrir no navegador.", "GitHubProjectsInfo"))
+  table.insert(lines, "Pressione 'o' para abrir no navegador.")
 
   local ui_config = config.get_ui_config()
 
@@ -476,16 +468,13 @@ function M.show_repositories(repos)
     local updated_at = safe_tostring(repo.updated_at)
 
     local icon = get_devicon(repo_name .. "." .. language:lower()) -- Tenta ícone por linguagem
-    if icon == " " then icon = get_devicon("folder") end         -- Fallback para ícone de pasta
+    if icon == " " then icon = get_devicon("folder") end           -- Fallback para ícone de pasta
 
-    local display_text = string.format("%s %s (%s)", icon, repo_name, language)
-    local info_text = string.format("  %s | ⭐ %s | %s | Atualizado: %s",
-      description, stars, private_str, updated_at and updated_at:sub(1, 10) or "N/A")
+    -- Usando string simples para o item do menu
+    local display_text = string.format("%s %s (%s) - %s | ⭐ %s | %s | Atualizado: %s",
+      icon, repo_name, language, description, stars, private_str, updated_at and updated_at:sub(1, 10) or "N/A")
 
-    table.insert(items, menu.item({
-      text.new(display_text, "GitHubProjectsTitle"),
-      text.new(info_text, "GitHubProjectsInfo"),
-    }, { value = repo }))
+    table.insert(items, menu.item(display_text, { value = repo })) -- Passa string diretamente
   end
 
   local ui_config = config.get_ui_config()
@@ -508,7 +497,7 @@ function M.show_repositories(repos)
       cursorline = true,
     },
   }, {
-    lines = items,
+    lines = items, -- items agora contêm strings simples
     max_width = ui_config.width,
     max_height = ui_config.height,
     keymap = {
