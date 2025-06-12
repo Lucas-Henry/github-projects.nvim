@@ -129,22 +129,21 @@ local function curl_request(url, headers, data, callback)
       end
     end)
   end)
-end)
 end
 
 function M.get_projects(callback)
-local org = config.get_org()
-local token = config.get_token()
+  local org = config.get_org()
+  local token = config.get_token()
 
-if not org or not token then
-  vim.notify("Organização ou token não configurados", vim.log.levels.ERROR)
-  callback(nil)
-  return
-end
+  if not org or not token then
+    vim.notify("Organização ou token não configurados", vim.log.levels.ERROR)
+    callback(nil)
+    return
+  end
 
--- Query GraphQL mais robusta
-local query = {
-  query = string.format([[
+  -- Query GraphQL mais robusta
+  local query = {
+    query = string.format([[
     query {
       organization(login: "%s") {
         projectsV2(first: 20, orderBy: {field: UPDATED_AT, direction: DESC}) {
@@ -161,215 +160,215 @@ local query = {
       }
     }
   ]], org)
-}
+  }
 
-local query_json = vim.json.encode(query)
+  local query_json = vim.json.encode(query)
 
-local headers = {
-  "Authorization: Bearer " .. token,
-  "Content-Type: application/json",
-  "Accept: application/vnd.github+json",
-  "X-GitHub-Api-Version: 2022-11-28"
-}
+  local headers = {
+    "Authorization: Bearer " .. token,
+    "Content-Type: application/json",
+    "Accept: application/vnd.github+json",
+    "X-GitHub-Api-Version: 2022-11-28"
+  }
 
--- print("Fazendo requisição para projetos da organização:", org)
+  -- print("Fazendo requisição para projetos da organização:", org)
 
-curl_request("https://api.github.com/graphql", headers, query_json, function(data, error)
-  if error then
-    vim.notify("Erro ao carregar projetos: " .. error, vim.log.levels.ERROR)
-    callback(nil)
-    return
-  end
-
-  if data and data.errors then
-    local error_msg = "Erro GraphQL: "
-    for _, err in ipairs(data.errors) do
-      error_msg = error_msg .. err.message .. " "
+  curl_request("https://api.github.com/graphql", headers, query_json, function(data, error)
+    if error then
+      vim.notify("Erro ao carregar projetos: " .. error, vim.log.levels.ERROR)
+      callback(nil)
+      return
     end
-    vim.notify(error_msg, vim.log.levels.ERROR)
-    callback(nil)
-    return
-  end
 
-  if data and data.data and data.data.organization and data.data.organization.projectsV2 then
-    local projects = data.data.organization.projectsV2.nodes
-    -- print("Projetos encontrados:", #projects)
-    if #projects > 0 then
-      callback(projects)
+    if data and data.errors then
+      local error_msg = "Erro GraphQL: "
+      for _, err in ipairs(data.errors) do
+        error_msg = error_msg .. err.message .. " "
+      end
+      vim.notify(error_msg, vim.log.levels.ERROR)
+      callback(nil)
+      return
+    end
+
+    if data and data.data and data.data.organization and data.data.organization.projectsV2 then
+      local projects = data.data.organization.projectsV2.nodes
+      -- print("Projetos encontrados:", #projects)
+      if #projects > 0 then
+        callback(projects)
+      else
+        vim.notify("Nenhum projeto V2 encontrado na organização " .. org, vim.log.levels.WARN)
+        callback({})
+      end
     else
-      vim.notify("Nenhum projeto V2 encontrado na organização " .. org, vim.log.levels.WARN)
+      vim.notify("Organização não encontrada ou sem projetos V2", vim.log.levels.WARN)
       callback({})
     end
-  else
-    vim.notify("Organização não encontrada ou sem projetos V2", vim.log.levels.WARN)
-    callback({})
-  end
-end)
+  end)
 end
 
 function M.get_issues(repo, callback)
-local org = config.get_org()
-local token = config.get_token()
+  local org = config.get_org()
+  local token = config.get_token()
 
-if not org or not token then
-  callback(nil)
-  return
-end
-
-local url
-if repo and repo ~= "" then
-  url = string.format("https://api.github.com/repos/%s/%s/issues?state=all&per_page=50", org, repo)
-else
-  url = string.format("https://api.github.com/search/issues?q=org:%s&per_page=50", org)
-end
-
-local headers = {
-  "Authorization: Bearer " .. token,
-  "Accept: application/vnd.github+json",
-  "X-GitHub-Api-Version: 2022-11-28",
-  "User-Agent: github-projects-nvim"
-}
-
-curl_request(url, headers, nil, function(data, error)
-  if error then
-    vim.notify("Erro ao carregar issues: " .. error, vim.log.levels.ERROR)
+  if not org or not token then
     callback(nil)
     return
   end
 
-  if data then
-    local issues = data.items or data
-    callback(issues)
+  local url
+  if repo and repo ~= "" then
+    url = string.format("https://api.github.com/repos/%s/%s/issues?state=all&per_page=50", org, repo)
   else
-    callback({})
+    url = string.format("https://api.github.com/search/issues?q=org:%s&per_page=50", org)
   end
-end)
+
+  local headers = {
+    "Authorization: Bearer " .. token,
+    "Accept: application/vnd.github+json",
+    "X-GitHub-Api-Version: 2022-11-28",
+    "User-Agent: github-projects-nvim"
+  }
+
+  curl_request(url, headers, nil, function(data, error)
+    if error then
+      vim.notify("Erro ao carregar issues: " .. error, vim.log.levels.ERROR)
+      callback(nil)
+      return
+    end
+
+    if data then
+      local issues = data.items or data
+      callback(issues)
+    else
+      callback({})
+    end
+  end)
 end
 
 function M.update_issue_state(repo, issue_number, new_state, callback)
-local org = config.get_org()
-local token = config.get_token()
+  local org = config.get_org()
+  local token = config.get_token()
 
-if not org or not token or not repo or not issue_number or not new_state then
-  callback(false)
-  return
-end
-
-local url = string.format("https://api.github.com/repos/%s/%s/issues/%d", org, repo, issue_number)
-
-local json_body = vim.json.encode({
-  state = new_state
-})
-
-local headers = {
-  "Authorization: Bearer " .. token,
-  "Accept: application/vnd.github+json",
-  "Content-Type: application/json",
-  "X-GitHub-Api-Version: 2022-11-28",
-  "User-Agent: github-projects-nvim"
-}
-
-curl_request(url, headers, json_body, function(result, error)
-  if error then
-    vim.notify("Erro ao atualizar issue: " .. error, vim.log.levels.ERROR)
+  if not org or not token or not repo or not issue_number or not new_state then
     callback(false)
     return
   end
-  callback(result ~= nil)
-end)
+
+  local url = string.format("https://api.github.com/repos/%s/%s/issues/%d", org, repo, issue_number)
+
+  local json_body = vim.json.encode({
+    state = new_state
+  })
+
+  local headers = {
+    "Authorization: Bearer " .. token,
+    "Accept: application/vnd.github+json",
+    "Content-Type: application/json",
+    "X-GitHub-Api-Version: 2022-11-28",
+    "User-Agent: github-projects-nvim"
+  }
+
+  curl_request(url, headers, json_body, function(result, error)
+    if error then
+      vim.notify("Erro ao atualizar issue: " .. error, vim.log.levels.ERROR)
+      callback(false)
+      return
+    end
+    callback(result ~= nil)
+  end)
 end
 
 function M.create_issue(issue_data, callback)
-local org = config.get_org()
-local token = config.get_token()
+  local org = config.get_org()
+  local token = config.get_token()
 
-if not org or not token or not issue_data.repo then
-  callback(false)
-  return
-end
-
-local url = string.format("https://api.github.com/repos/%s/%s/issues", org, issue_data.repo)
-
-local json_body = vim.json.encode({
-  title = issue_data.title,
-  body = issue_data.body or ""
-})
-
-local headers = {
-  "Authorization: Bearer " .. token,
-  "Accept: application/vnd.github+json",
-  "Content-Type: application/json",
-  "X-GitHub-Api-Version: 2022-11-28",
-  "User-Agent: github-projects-nvim"
-}
-
-curl_request(url, headers, json_body, function(result, error)
-  if error then
-    vim.notify("Erro ao criar issue: " .. error, vim.log.levels.ERROR)
+  if not org or not token or not issue_data.repo then
     callback(false)
     return
   end
 
-  callback(result ~= nil)
-end)
+  local url = string.format("https://api.github.com/repos/%s/%s/issues", org, issue_data.repo)
+
+  local json_body = vim.json.encode({
+    title = issue_data.title,
+    body = issue_data.body or ""
+  })
+
+  local headers = {
+    "Authorization: Bearer " .. token,
+    "Accept: application/vnd.github+json",
+    "Content-Type: application/json",
+    "X-GitHub-Api-Version: 2022-11-28",
+    "User-Agent: github-projects-nvim"
+  }
+
+  curl_request(url, headers, json_body, function(result, error)
+    if error then
+      vim.notify("Erro ao criar issue: " .. error, vim.log.levels.ERROR)
+      callback(false)
+      return
+    end
+
+    callback(result ~= nil)
+  end)
 end
 
 function M.get_repositories(callback)
-local org = config.get_org()
-local token = config.get_token()
+  local org = config.get_org()
+  local token = config.get_token()
 
-if not org then
-  callback(nil)
-  return
-end
-
-local url = string.format("https://api.github.com/orgs/%s/repos?per_page=100&sort=updated", org)
-
-local headers = {
-  "Authorization: Bearer " .. token,
-  "Accept: application/vnd.github+json",
-  "X-GitHub-Api-Version: 2022-11-28",
-  "User-Agent: github-projects-nvim"
-}
-
-curl_request(url, headers, nil, function(data, error)
-  if error then
-    vim.notify("Erro ao carregar repositórios: " .. error, vim.log.levels.ERROR)
+  if not org then
     callback(nil)
     return
   end
 
-  if data then
-    callback(data)
-  else
-    callback({})
-  end
-end)
+  local url = string.format("https://api.github.com/orgs/%s/repos?per_page=100&sort=updated", org)
+
+  local headers = {
+    "Authorization: Bearer " .. token,
+    "Accept: application/vnd.github+json",
+    "X-GitHub-Api-Version: 2022-11-28",
+    "User-Agent: github-projects-nvim"
+  }
+
+  curl_request(url, headers, nil, function(data, error)
+    if error then
+      vim.notify("Erro ao carregar repositórios: " .. error, vim.log.levels.ERROR)
+      callback(nil)
+      return
+    end
+
+    if data then
+      callback(data)
+    else
+      callback({})
+    end
+  end)
 end
 
 function M.test_connection(callback)
-local token = config.get_token()
+  local token = config.get_token()
 
-if not token then
-  callback(false, "Token não configurado")
-  return
-end
-
-local headers = {
-  "Authorization: Bearer " .. token,
-  "Accept: application/vnd.github+json",
-  "X-GitHub-Api-Version: 2022-11-28",
-  "User-Agent: github-projects-nvim"
-}
-
-curl_request("https://api.github.com/user", headers, nil, function(data, error)
-  if error then
-    callback(false, error)
-  else
-    local login = data and data.login or "Unknown"
-    callback(true, "Conectado como: " .. login)
+  if not token then
+    callback(false, "Token não configurado")
+    return
   end
-end)
+
+  local headers = {
+    "Authorization: Bearer " .. token,
+    "Accept: application/vnd.github+json",
+    "X-GitHub-Api-Version: 2022-11-28",
+    "User-Agent: github-projects-nvim"
+  }
+
+  curl_request("https://api.github.com/user", headers, nil, function(data, error)
+    if error then
+      callback(false, error)
+    else
+      local login = data and data.login or "Unknown"
+      callback(true, "Conectado como: " .. login)
+    end
+  end)
 end
 
 return M

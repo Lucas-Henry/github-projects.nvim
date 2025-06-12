@@ -1,27 +1,20 @@
 local api = require("github-projects.api")
 local ui = require("github-projects.ui")
 local utils = require("github-projects.utils")
+local config = require("github-projects.config")
 
 local M = {}
 
-M.config = {
-  github_token = "",
-  github_username = "",
-  project_owner = "",
-  project_number = 1,
-  column_names = {
-    "Backlog",
-    "Todo",
-    "In Progress",
-    "Done",
-  },
-  -- You can add more configuration options here
-}
-
 function M.setup(opts)
-  M.config = vim.tbl_deep_extend("force", M.config, opts or {})
-  api.setup(M.config)
-  ui.setup(M.config)
+  config.setup(opts or {})
+
+  if not config.validate() then
+    vim.notify("GitHub Projects: Configuração inválida. Verifique o arquivo de configuração.", vim.log.levels.ERROR)
+    return
+  end
+
+  M.setup_commands()
+  M.setup_keymaps()
 end
 
 function M.load_projects()
@@ -32,15 +25,24 @@ function M.load_projects()
 end
 
 function M.load_issues(repo)
-  local issues = api.get_issues(repo)
-  if issues then
-    ui.show_issues_kanban(issues, repo)
-  end
+  api.get_issues(repo, function(issues)
+    if issues then
+      ui.show_issues_kanban(issues, repo or "Organization Issues") -- Passa o repo como título ou um padrão
+    else
+      vim.notify("Erro ao carregar issues", vim.log.levels.ERROR)
+    end
+  end)
 end
 
 function M.create_issue()
   ui.create_issue_form(function(issue_data)
-    api.create_issue(issue_data)
+    api.create_issue(issue_data, function(success)
+      if success then
+        vim.notify("Issue criada com sucesso!", vim.log.levels.INFO)
+      else
+        vim.notify("Erro ao criar issue", vim.log.levels.ERROR)
+      end
+    end)
   end)
 end
 
