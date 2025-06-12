@@ -5,6 +5,14 @@ local api = require('github-projects.api')
 vim.notify("DEBUG: ui.lua file loaded", vim.log.levels.INFO)
 vim.notify("DEBUG: Attempting to require nui in ui.lua", vim.log.levels.INFO)
 
+-- REMOVA TODAS AS LINHAS DE package.path AQUI.
+-- Ex: REMOVA: local nui_base_path = vim.fn.stdpath('data') .. '/lazy/nui.nvim/lua/'
+-- Ex: REMOVA: package.path = nui_base_path .. '?.lua;' .. nui_base_path .. '?/init.lua;' .. package.path
+-- Ex: REMOVA: vim.notify("DEBUG: package.path after nui.nvim specific add: " .. package.path, vim.log.levels.INFO)
+
+-- NOVO: Adicione este DEBUG print para ver o package.path no momento exato do require
+vim.notify("DEBUG: package.path BEFORE nui require in ui.lua: " .. package.path, vim.log.levels.INFO)
+
 -- Função de fallback para Nui components se nui não for carregado
 local NuiFallback = {
   popup = function(opts)
@@ -80,7 +88,7 @@ end
 
 -- Highlight groups para a UI
 local function setup_highlights()
-  -- Adicione uma verificação para nui_module existir antes de tentar configurar hl_group
+  -- Adicione uma verificação para success_nui existir antes de tentar configurar hl_group
   if success_nui then
     vim.api.nvim_set_hl(0, "GitHubProjectsBorder", { fg = "#61AFEF", bg = "NONE" })                   -- Azul para borda
     vim.api.nvim_set_hl(0, "GitHubProjectsTitle", { fg = "#98C379", bg = "NONE", bold = true })       -- Verde para títulos
