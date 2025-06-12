@@ -1,7 +1,18 @@
 local M = {}
 local config = require('github-projects.config')
 local api = require('github-projects.api')
-local ui = require('github-projects.ui') -- This line requires ui.lua
+
+-- Tenta carregar a UI baseada em nui.nvim, com fallback para a UI nativa
+local ui = nil
+local nui_available, nui_popup = pcall(require, 'nui.popup') -- Verifica se nui.popup pode ser carregado
+
+if nui_available then
+  vim.notify("DEBUG: Usando nui.nvim UI", vim.log.levels.INFO)
+  ui = require('github-projects.ui_nui') -- Novo arquivo para a UI com nui.nvim
+else
+  vim.notify("DEBUG: nui.nvim não disponível, usando UI nativa como fallback", vim.log.levels.INFO)
+  ui = require('github-projects.ui') -- Seu arquivo ui.lua atual
+end
 
 function M.setup(opts)
   vim.notify("DEBUG: init.lua M.setup started", vim.log.levels.INFO)
@@ -12,6 +23,7 @@ function M.setup(opts)
     return
   end
 
+  -- Chamadas de setup de comandos e keymaps devem vir aqui no final
   M.setup_commands()
   M.setup_keymaps()
   vim.notify("DEBUG: init.lua M.setup finished", vim.log.levels.INFO)
