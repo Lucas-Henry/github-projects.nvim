@@ -144,22 +144,22 @@ function M.get_projects(callback)
   -- Query GraphQL mais robusta
   local query = {
     query = string.format([[
-    query {
-      organization(login: "%s") {
-        projectsV2(first: 20, orderBy: {field: UPDATED_AT, direction: DESC}) {
-          nodes {
-            id
-            title
-            url
-            number
-            shortDescription
-            updatedAt
-            createdAt
-          }
+  query {
+    organization(login: "%s") {
+      projectsV2(first: 20, orderBy: {field: UPDATED_AT, direction: DESC}) {
+        nodes {
+          id
+          title
+          url
+          number
+          shortDescription
+          updatedAt
+          createdAt
         }
       }
     }
-  ]], org)
+  }
+]], org)
   }
 
   local query_json = vim.json.encode(query)
