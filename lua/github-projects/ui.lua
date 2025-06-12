@@ -5,20 +5,67 @@ local api = require('github-projects.api')
 vim.notify("DEBUG: ui.lua file loaded", vim.log.levels.INFO)
 vim.notify("DEBUG: Attempting to require nui in ui.lua", vim.log.levels.INFO)
 
--- Adiciona o caminho específico do nui.nvim ao package.path
--- O stdpath('data') geralmente é ~/.local/share/nvim
-local nui_base_path = vim.fn.stdpath('data') .. '/lazy/nui.nvim/lua/'
-package.path = nui_base_path .. '?.lua;' .. nui_base_path .. '?/init.lua;' .. package.path
-vim.notify("DEBUG: package.path after nui.nvim specific add: " .. package.path, vim.log.levels.INFO)
+-- Função de fallback para Nui components se nui não for carregado
+local NuiFallback = {
+  popup = function(opts)
+    vim.notify("NuiPopup failed to load. Using fallback message. Error: " .. (opts.title or ""), vim.log.levels.ERROR)
+    vim.api.nvim_echo({ { "Erro: Nui não carregado. Veja logs para detalhes.", "Error" } }, true, {})
+    return {
+      set_component = function() end,
+      mount = function() end,
+      map = function() end,
+      unmount = function() end,
+    }
+  end,
+  list = function(opts)
+    vim.notify("NuiList failed to load. Error: " .. (opts.header and opts.header.text or ""), vim.log.levels.ERROR)
+    return {
+      mount = function() end,
+      focus = function() end,
+    }
+  end,
+  input = function(opts)
+    vim.notify("NuiInput failed to load. Error: " .. (opts.prompt or ""), vim.log.levels.ERROR)
+    return {
+      mount = function() end,
+    }
+  end,
+  text = function(opts)
+    vim.notify("NuiText failed to load.", vim.log.levels.ERROR)
+    return {
+      mount = function() end,
+    }
+  end,
+  split = function(opts)
+    vim.notify("NuiSplit failed to load.", vim.log.levels.ERROR)
+    return {
+      mount = function() end,
+      focus = function() end,
+      focus_prev = function() end,
+      focus_next = function() end,
+    }
+  end,
+}
 
-local nui = require('nui')
-vim.notify("DEBUG: nui required successfully in ui.lua", vim.log.levels.INFO)
+local success_nui, nui_module = pcall(require, 'nui')
+local NuiPopup, NuiList, NuiInput, NuiText, NuiSplit
 
-local NuiPopup = nui.popup
-local NuiList = nui.list
-local NuiInput = nui.input
-local NuiText = nui.text
-local NuiSplit = nui.split
+if success_nui then
+  vim.notify("DEBUG: nui required successfully in ui.lua", vim.log.levels.INFO)
+  NuiPopup = nui_module.popup
+  NuiList = nui_module.list
+  NuiInput = nui_module.input
+  NuiText = nui_module.text
+  NuiSplit = nui_module.split
+else
+  vim.notify("ERROR: Failed to load nui.nvim. UI functionality will be limited. Error: " .. nui_module,
+    vim.log.levels.ERROR)
+  NuiPopup = NuiFallback.popup
+  NuiList = NuiFallback.list
+  NuiInput = NuiFallback.input
+  NuiText = NuiFallback.text
+  NuiSplit = NuiFallback.split
+end
 
 -- Helper para garantir que valores sejam strings seguras
 local function safe_tostring(value)
@@ -33,15 +80,20 @@ end
 
 -- Highlight groups para a UI
 local function setup_highlights()
-  vim.api.nvim_set_hl(0, "GitHubProjectsBorder", { fg = "#61AFEF", bg = "NONE" })                   -- Azul para borda
-  vim.api.nvim_set_hl(0, "GitHubProjectsTitle", { fg = "#98C379", bg = "NONE", bold = true })       -- Verde para títulos
-  vim.api.nvim_set_hl(0, "GitHubProjectsSelected", { fg = "#C678DD", bg = "#3E4452", bold = true }) -- Roxo para item selecionado
-  vim.api.nvim_set_hl(0, "GitHubProjectsInfo", { fg = "#ABB2BF", bg = "NONE" })                     -- Cinza claro para informações
-  vim.api.nvim_set_hl(0, "GitHubProjectsURL", { fg = "#56B6C2", bg = "NONE", underline = true })    -- Ciano para URLs
-  vim.api.nvim_set_hl(0, "GitHubProjectsLabel", { fg = "#E5C07B", bg = "#3E4452" })                 -- Amarelo para labels
-  vim.api.nvim_set_hl(0, "GitHubProjectsOpen", { fg = "#98C379", bg = "NONE", bold = true })        -- Verde para issues abertas
-  vim.api.nvim_set_hl(0, "GitHubProjectsClosed", { fg = "#E06C75", bg = "NONE", bold = true })      -- Vermelho para issues fechadas
-  vim.api.nvim_set_hl(0, "GitHubProjectsHeader", { fg = "#61AFEF", bg = "#282C34", bold = true })   -- Azul para cabeçalhos de coluna
+  -- Adicione uma verificação para nui_module existir antes de tentar configurar hl_group
+  if success_nui then
+    vim.api.nvim_set_hl(0, "GitHubProjectsBorder", { fg = "#61AFEF", bg = "NONE" })                   -- Azul para borda
+    vim.api.nvim_set_hl(0, "GitHubProjectsTitle", { fg = "#98C379", bg = "NONE", bold = true })       -- Verde para títulos
+    vim.api.nvim_set_hl(0, "GitHubProjectsSelected", { fg = "#C678DD", bg = "#3E4452", bold = true }) -- Roxo para item selecionado
+    vim.api.nvim_set_hl(0, "GitHubProjectsInfo", { fg = "#ABB2BF", bg = "NONE" })                     -- Cinza claro para informações
+    vim.api.nvim_set_hl(0, "GitHubProjectsURL", { fg = "#56B6C2", bg = "NONE", underline = true })    -- Ciano para URLs
+    vim.api.nvim_set_hl(0, "GitHubProjectsLabel", { fg = "#E5C07B", bg = "#3E4452" })                 -- Amarelo para labels
+    vim.api.nvim_set_hl(0, "GitHubProjectsOpen", { fg = "#98C379", bg = "NONE", bold = true })        -- Verde para issues abertas
+    vim.api.nvim_set_hl(0, "GitHubProjectsClosed", { fg = "#E06C75", bg = "NONE", bold = true })      -- Vermelho para issues fechadas
+    vim.api.nvim_set_hl(0, "GitHubProjectsHeader", { fg = "#61AFEF", bg = "#282C34", bold = true })   -- Azul para cabeçalhos de coluna
+  else
+    vim.notify("Nui.nvim não carregado, pulando configuração de destaques.", vim.log.levels.WARN)
+  end
 end
 
 setup_highlights()
@@ -101,14 +153,14 @@ function GitHubProjectsUI.open_popup(opts, on_close_callback)
     end,
   }
 
-  GitHubProjectsUI.current_popup = NuiPopup(popup_opts)
-  GitHubProjectsUI.current_popup:mount()
+  local popup_instance = NuiPopup(popup_opts) -- Use a variável local NuiPopup
+  popup_instance:mount()
 
   -- Keymaps globais para o popup
-  GitHubProjectsUI.current_popup:map('n', { 'q', '<Esc>' }, GitHubProjectsUI.close_current_popup,
-    { noremap = true, silent = true })
+  popup_instance:map('n', { 'q', '<Esc>' }, GitHubProjectsUI.close_current_popup, { noremap = true, silent = true })
 
-  return GitHubProjectsUI.current_popup
+  GitHubProjectsUI.current_popup = popup_instance -- Armazenar a instância
+  return popup_instance
 end
 
 -- Função para exibir projetos
