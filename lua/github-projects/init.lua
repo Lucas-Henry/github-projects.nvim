@@ -1,9 +1,10 @@
 local M = {}
 local config = require('github-projects.config')
 local api = require('github-projects.api')
-local ui = require('github-projects.ui')
+local ui = require('github-projects.ui') -- This line requires ui.lua
 
 function M.setup(opts)
+  vim.notify("DEBUG: init.lua M.setup started", vim.log.levels.INFO)
   config.setup(opts or {})
 
   if not config.validate() then
@@ -13,10 +14,11 @@ function M.setup(opts)
 
   M.setup_commands()
   M.setup_keymaps()
+  vim.notify("DEBUG: init.lua M.setup finished", vim.log.levels.INFO)
 end
 
 function M.load_projects()
-  api.get_projects(function(projects) -- api.get_projects agora é assíncrono
+  api.get_projects(function(projects)
     if projects then
       ui.show_projects(projects)
     else
@@ -28,7 +30,7 @@ end
 function M.load_issues(repo)
   api.get_issues(repo, function(issues)
     if issues then
-      ui.show_issues_kanban(issues, repo or "Organization Issues") -- Passa o repo como título ou um padrão
+      ui.show_issues_kanban(issues, repo or "Organization Issues")
     else
       vim.notify("Erro ao carregar issues", vim.log.levels.ERROR)
     end
@@ -57,11 +59,11 @@ function M.create_issue()
   end)
 end
 
-function M.show_projects(args) -- Mantido para compatibilidade com comandos
+function M.show_projects(args)
   M.load_projects()
 end
 
-function M.show_issues(args) -- Mantido para compatibilidade com comandos
+function M.show_issues(args)
   M.load_issues(args)
 end
 

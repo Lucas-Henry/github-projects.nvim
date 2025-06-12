@@ -1,7 +1,12 @@
 local M = {}
 local config = require('github-projects.config')
 local api = require('github-projects.api')
+
+vim.notify("DEBUG: ui.lua file loaded", vim.log.levels.INFO)
+vim.notify("DEBUG: Attempting to require nui in ui.lua", vim.log.levels.INFO)
 local nui = require('nui')
+vim.notify("DEBUG: nui required successfully in ui.lua", vim.log.levels.INFO)
+
 local NuiPopup = nui.popup
 local NuiList = nui.list
 local NuiInput = nui.input
@@ -141,10 +146,6 @@ function M.show_projects(projects)
       ['<CR>'] = function(item)
         if item and item.value then
           vim.notify("Carregando issues para o projeto: " .. item.value.title, vim.log.levels.INFO)
-          -- Para um Kanban real, precisaríamos de uma API para buscar issues por projeto V2
-          -- Por enquanto, vamos mostrar issues da organização ou de um repo específico
-          -- O ideal seria ter um campo 'repo' no projeto ou selecionar um repo para ver as issues
-          -- Para demonstração, vamos carregar issues da organização
           api.get_issues(nil, function(issues)
             if issues then
               M.show_issues_kanban(issues, item.value.title)
