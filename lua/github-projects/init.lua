@@ -1,9 +1,7 @@
-local api = require("github-projects.api")
-local ui = require("github-projects.ui")
-local utils = require("github-projects.utils")
-local config = require("github-projects.config")
-
 local M = {}
+local config = require('github-projects.config')
+local api = require('github-projects.api')
+local ui = require('github-projects.ui')
 
 function M.setup(opts)
   config.setup(opts or {})
@@ -18,10 +16,13 @@ function M.setup(opts)
 end
 
 function M.load_projects()
-  local projects = api.get_projects()
-  if projects then
-    ui.show_projects(projects)
-  end
+  api.get_projects(function(projects) -- api.get_projects agora é assíncrono
+    if projects then
+      ui.show_projects(projects)
+    else
+      vim.notify("Erro ao carregar projetos", vim.log.levels.ERROR)
+    end
+  end)
 end
 
 function M.load_issues(repo)
@@ -30,6 +31,16 @@ function M.load_issues(repo)
       ui.show_issues_kanban(issues, repo or "Organization Issues") -- Passa o repo como título ou um padrão
     else
       vim.notify("Erro ao carregar issues", vim.log.levels.ERROR)
+    end
+  end)
+end
+
+function M.load_repositories()
+  api.get_repositories(function(repos)
+    if repos then
+      ui.show_repositories(repos)
+    else
+      vim.notify("Erro ao carregar repositórios", vim.log.levels.ERROR)
     end
   end)
 end
@@ -46,10 +57,60 @@ function M.create_issue()
   end)
 end
 
-function M.load_repositories()
-  local repos = api.get_repositories()
-  if repos then
-    ui.show_repositories(repos)
+function M.show_projects(args) -- Mantido para compatibilidade com comandos
+  M.load_projects()
+end
+
+function M.show_issues(args) -- Mantido para compatibilidade com comandos
+  M.load_issues(args)
+end
+
+function M.test_connection()
+  api.test_connection(function(success, message)
+    if success then
+      vim.notify("✅ " .. message, vim.log.levels.INFO)
+    else
+      vim.notify("❌ Erro de conexão: " .. message, vim.log.levels.ERROR)
+    end
+  end)
+end
+
+function M.setup_commands()
+  vim.api.nvim_create_user_command('GitHubProjects', function()
+    M.load_projects()
+  end, { desc = 'Show GitHub Projects' })
+
+  vim.api.nvim_create_user_command('GitHubIssues', function(opts)
+    M.load_issues(opts.args)
+  end, { nargs = '?', desc = 'Show GitHub Issues' })
+
+  vim.api.nvim_create_user_command('GitHubCreateIssue', function()
+    M.create_issue()
+  end, { desc = 'Create GitHub Issue' })
+
+  vim.api.nvim_create_user_command('GitHubRepos', function()
+    M.load_repositories()
+  end, { desc = 'Show GitHub Repositories' })
+
+  vim.api.nvim_create_user_command('GitHubTest', function()
+    M.test_connection()
+  end, { desc = 'Test GitHub Connection' })
+end
+
+function M.setup_keymaps()
+  local keymaps = config.config.keymaps
+  local opts = { noremap = true, silent = true }
+
+  if keymaps.projects then
+    vim.keymap.set('n', keymaps.projects, ':GitHubProjects<CR>', opts)
+  end
+
+  if keymaps.issues then
+    vim.keymap.set('n', keymaps.issues, ':GitHubIssues<CR>', opts)
+  end
+
+  if keymaps.create_issue then
+    vim.keymap.set('n', keymaps.create_issue, ':GitHubCreateIssue<CR>', opts)
   end
 end
 
