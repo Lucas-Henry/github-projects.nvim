@@ -2,15 +2,29 @@ local M = {}
 local config = require('github-projects.config')
 local api = require('github-projects.api')
 
--- Importa os módulos do nui.nvim
+-- Importar módulos do nui.nvim
 local popup = require('nui.popup')
-local menu = require('nui.menu')
-local input = require('nui.input')
 local layout = require('nui.layout')
-local event = require('nui.utils.event')
-local ffi = require('ffi') -- Para usar ffi.cast para o callback de menu
+local menu = require('nui.menu')
+local event = require('nui.utils.event') -- Esta linha causou o erro antes
 
 vim.notify("DEBUG: ui_nui.lua file loaded (using nui.nvim)", vim.log.levels.INFO)
+
+-- Gerenciador de UI principal para nui.nvim
+local GitHubProjectsNuiUI = {}
+GitHubProjectsNuiUI.current_popup = nil
+GitHubProjectsNuiUI.current_menu = nil
+
+function GitHubProjectsNuiUI.close_current_popup()
+  if GitHubProjectsNuiUI.current_popup then
+    GitHubProjectsNuiUI.current_popup:unmount()
+    GitHubProjectsNuiUI.current_popup = nil
+  end
+  if GitHubProjectsNuiUI.current_menu then
+    GitHubProjectsNuiUI.current_menu:unmount()
+    GitHubProjectsNuiUI.current_menu = nil
+  end
+end
 
 -- Helper para garantir que valores sejam strings seguras
 local function safe_tostring(value)
@@ -21,24 +35,6 @@ local function safe_tostring(value)
     return value
   end
   return tostring(value)
-end
-
--- Gerenciador de UI principal para nui.nvim
-local NuiUI = {}
-NuiUI.current_popup = nil
-NuiUI.current_menu = nil
-NuiUI.current_issues_data = nil -- Para o Kanban
-
-function NuiUI.close_current_ui()
-  if NuiUI.current_popup and NuiUI.current_popup.bufnr then
-    NuiUI.current_popup:unmount()
-    NuiUI.current_popup = nil
-  end
-  if NuiUI.current_menu and NuiUI.current_menu.bufnr then
-    NuiUI.current_menu:unmount()
-    NuiUI.current_menu = nil
-  end
-  NuiUI.current_issues_data = nil
 end
 
 -- Highlight groups para a UI (mantidos)
@@ -62,7 +58,7 @@ function M.show_projects(projects)
     return
   end
 
-  NuiUI.close_current_ui()
+  GitHubProjectsNuiUI.close_current_popup()
 
   local items = {}
   for i, project in ipairs(projects) do
@@ -80,8 +76,7 @@ function M.show_projects(projects)
 
   local ui_config = config.get_ui_config()
 
-  NuiUI.current_menu = menu({
-    items = items,
+  GitHubProjectsNuiUI.current_menu = menu.new(items, {
     position = "50%",
     size = {
       width = ui_config.width,
@@ -90,7 +85,7 @@ function M.show_projects(projects)
     border = {
       style = ui_config.border,
       text = {
-        top = "GitHub Projects",
+        top = "Selecione um Projeto",
         top_align = "center",
       },
     },
@@ -98,11 +93,11 @@ function M.show_projects(projects)
       winhighlight = "Normal:Normal,FloatBorder:GitHubProjectsBorder",
       cursorline = true,
     },
+    max_width = ui_config.width,
+    max_height = ui_config.height,
   }, {
-    on_close = function()
-      NuiUI.current_menu = nil
-    end,
-    on_submit = ffi.cast("vim.menu_cb", function(item)
+    on_submit = function(item)
+      GitHubProjectsNuiUI.close_current_popup()
       if item and item.value then
         local project = item.value
         vim.notify("Carregando issues para o projeto: " .. project.title, vim.log.levels.INFO)
@@ -114,12 +109,13 @@ function M.show_projects(projects)
           end
         end)
       end
-    end),
-    max_width = ui_config.width,
-    max_height = ui_config.height,
+    end,
+    on_close = function()
+      GitHubProjectsNuiUI.current_menu = nil
+    end,
   })
 
-  NuiUI.current_menu:mount()
+  GitHubProjectsNuiUI.current_menu:mount()
 end
 
 -- Função para exibir issues em um formato Kanban-like (Open/Closed) usando nui.layout
@@ -129,7 +125,7 @@ function M.show_issues_kanban(issues, project_title)
     return
   end
 
-  NuiUI.close_current_ui()
+  GitHubProjectsNuiUI.close_current_popup()
 
   local open_issues = {}
   local closed_issues = {}
@@ -158,65 +154,76 @@ function M.show_issues_kanban(issues, project_title)
   end
 
   local ui_config = config.get_ui_config()
-  local half_width = math.floor(ui_config.width / 2)
+  local popup_height = ui_config.height
+  local popup_width = ui_config.width
+  local half_width = math.floor(popup_width / 2)
 
-  -- Cria os buffers para as colunas
-  local open_buf = vim.api.nvim_create_buf(false, true)
-  vim.api.nvim_buf_set_option(open_buf, 'bufhidden', 'wipe')
-  vim.api.nvim_buf_set_option(open_buf, 'buftype', 'nofile')
-  vim.api.nvim_buf_set_option(open_buf, 'swapfile', false)
-  vim.api.nvim_buf_set_option(open_buf, 'filetype', 'github-projects-kanban')
-
-  local closed_buf = vim.api.nvim_create_buf(false, true)
-  vim.api.nvim_buf_set_option(closed_buf, 'bufhidden', 'wipe')
-  vim.api.nvim_buf_set_option(closed_buf, 'buftype', 'nofile')
-  vim.api.nvim_buf_set_option(closed_buf, 'swapfile', false)
-  vim.api.nvim_buf_set_option(closed_buf, 'filetype', 'github-projects-kanban')
-
-  -- Preenche os buffers
-  local open_lines = { "=== 🟢 OPEN ISSUES ===" }
-  local open_issue_map = {}
-  local open_line_idx = 1
-  if #open_issues > 0 then
-    for _, issue in ipairs(open_issues) do
-      table.insert(open_lines, format_issue_line(issue))
-      open_line_idx = open_line_idx + 1
-      open_issue_map[open_line_idx] = issue
-    end
-  else
-    table.insert(open_lines, "  (Nenhuma issue aberta)")
+  local open_items = {}
+  for _, issue in ipairs(open_issues) do
+    table.insert(open_items, { text = format_issue_line(issue), value = issue })
   end
-  vim.api.nvim_buf_set_lines(open_buf, 0, -1, false, open_lines)
-
-  local closed_lines = { "=== 🔴 CLOSED ISSUES ===" }
-  local closed_issue_map = {}
-  local closed_line_idx = 1
-  if #closed_issues > 0 then
-    for _, issue in ipairs(closed_issues) do
-      table.insert(closed_lines, format_issue_line(issue))
-      closed_line_idx = closed_line_idx + 1
-      closed_issue_map[closed_line_idx] = issue
-    end
-  else
-    table.insert(closed_lines, "  (Nenhuma issue fechada)")
+  if #open_items == 0 then
+    table.insert(open_items, { text = "  (Nenhuma issue aberta)", value = nil })
   end
-  vim.api.nvim_buf_set_lines(closed_buf, 0, -1, false, closed_lines)
 
-  -- Armazena os mapas de issues para seleção
-  NuiUI.current_issues_data = {
-    open = open_issue_map,
-    closed = closed_issue_map,
-  }
+  local closed_items = {}
+  for _, issue in ipairs(closed_issues) do
+    table.insert(closed_items, { text = format_issue_line(issue), value = issue })
+  end
+  if #closed_items == 0 then
+    table.insert(closed_items, { text = "  (Nenhuma issue fechada)", value = nil })
+  end
 
-  -- Cria o layout de colunas
-  NuiUI.current_popup = popup({
-    enter = true,
-    focusable = true,
-    relative = "editor",
+  local open_menu = menu.new(open_items, {
+    size = { width = half_width, height = popup_height - 2 }, -- -2 para cabeçalho
+    border = {
+      style = "none",                                         -- Sem borda interna
+      text = { top = "🟢 Open Issues", top_align = "center" },
+    },
+    win_options = {
+      winhighlight = "Normal:Normal,CursorLine:GitHubProjectsSelected",
+      cursorline = true,
+    },
+  }, {
+    on_submit = function(item)
+      if item and item.value then
+        M.show_issue_details(item.value)
+      end
+    end,
+  })
+
+  local closed_menu = menu.new(closed_items, {
+    size = { width = popup_width - half_width, height = popup_height - 2 },
+    border = {
+      style = "none",
+      text = { top = "🔴 Closed Issues", top_align = "center" },
+    },
+    win_options = {
+      winhighlight = "Normal:Normal,CursorLine:GitHubProjectsSelected",
+      cursorline = true,
+    },
+  }, {
+    on_submit = function(item)
+      if item and item.value then
+        M.show_issue_details(item.value)
+      end
+    end,
+  })
+
+  GitHubProjectsNuiUI.current_popup = popup.new(layout.split({
+    open_menu,
+    closed_menu,
+  }, {
+    direction = "row",
+    size = {
+      width = popup_width,
+      height = popup_height,
+    },
+  }), {
     position = "50%",
     size = {
-      width = ui_config.width,
-      height = ui_config.height,
+      width = popup_width,
+      height = popup_height,
     },
     border = {
       style = ui_config.border,
@@ -227,97 +234,32 @@ function M.show_issues_kanban(issues, project_title)
     },
     win_options = {
       winhighlight = "Normal:Normal,FloatBorder:GitHubProjectsBorder",
-      cursorline = true,
     },
   }, {
-    -- Define o layout interno
-    mount = function(win)
-      layout.split({
-        layout.box({
-          bufnr = open_buf,
-          border = {
-            style = "single",
-            text = {
-              top = "Open",
-              top_align = "center",
-            },
-          },
-          win_options = {
-            winhighlight = "Normal:Normal,FloatBorder:GitHubProjectsBorder",
-            cursorline = true,
-          },
-        }),
-        layout.box({
-          bufnr = closed_buf,
-          border = {
-            style = "single",
-            text = {
-              top = "Closed",
-              top_align = "center",
-            },
-          },
-          win_options = {
-            winhighlight = "Normal:Normal,FloatBorder:GitHubProjectsBorder",
-            cursorline = true,
-          },
-        }),
-      }, {
-        direction = "row",
-        size = {
-          width = { half_width, ui_config.width - half_width },
-          height = ui_config.height,
-        },
-      }):mount(win)
-    end,
-    -- Keymaps para navegação e seleção
-    on_key = function(key)
-      if key == "q" or key == "<Esc>" then
-        NuiUI.close_current_ui()
-      elseif key == "<CR>" then
-        local current_win = vim.api.nvim_get_current_win()
-        local current_buf = vim.api.nvim_win_get_buf(current_win)
-        local cursor_line = vim.api.nvim_win_get_cursor(current_win)[1] -- Linha base 1
-
-        local selected_issue = nil
-        if current_buf == open_buf then
-          selected_issue = NuiUI.current_issues_data.open[cursor_line]
-        elseif current_buf == closed_buf then
-          selected_issue = NuiUI.current_issues_data.closed[cursor_line]
-        end
-
-        if selected_issue then
-          M.show_issue_details(selected_issue)
-        else
-          vim.notify("Nenhuma issue selecionada nesta linha.", vim.log.levels.WARN)
-        end
-      elseif key == "l" then -- Mover para a direita (coluna Closed)
-        local current_win = vim.api.nvim_get_current_win()
-        local current_buf = vim.api.nvim_win_get_buf(current_win)
-        if current_buf == open_buf then
-          vim.api.nvim_set_current_win(vim.api.nvim_buf_get_option(closed_buf, 'winid'))
-        end
-      elseif key == "h" then -- Mover para a esquerda (coluna Open)
-        local current_win = vim.api.nvim_get_current_win()
-        local current_buf = vim.api.nvim_win_get_buf(current_win)
-        if current_buf == closed_buf then
-          vim.api.nvim_set_current_win(vim.api.nvim_buf_get_option(open_buf, 'winid'))
-        end
-      end
-    end,
+    enter = true,
+    focusable = true,
     on_close = function()
-      NuiUI.current_popup = nil
-      -- Garante que os buffers temporários sejam limpos
-      if vim.api.nvim_buf_is_valid(open_buf) then vim.api.nvim_buf_delete(open_buf, { force = true }) end
-      if vim.api.nvim_buf_is_valid(closed_buf) then vim.api.nvim_buf_delete(closed_buf, { force = true }) end
+      GitHubProjectsNuiUI.current_popup = nil
     end,
   })
 
-  NuiUI.current_popup:mount()
+  GitHubProjectsNuiUI.current_popup:mount()
+
+  -- Keymaps para navegação entre colunas (menus)
+  vim.api.nvim_buf_set_keymap(open_menu.bufnr, 'n', 'l',
+    string.format(":lua vim.api.nvim_set_current_win(%d)<CR>", closed_menu.winid),
+    { noremap = true, silent = true })
+  vim.api.nvim_buf_set_keymap(closed_menu.bufnr, 'n', 'h',
+    string.format(":lua vim.api.nvim_set_current_win(%d)<CR>", open_menu.winid),
+    { noremap = true, silent = true })
+
+  -- Foca no primeiro menu
+  vim.api.nvim_set_current_win(open_menu.winid)
 end
 
 -- Função para exibir detalhes de uma issue (usando nui.popup)
 function M.show_issue_details(issue)
-  NuiUI.close_current_ui() -- Fecha qualquer UI anterior
+  GitHubProjectsNuiUI.close_current_popup()
 
   local lines = {
     "=== DETALHES DA ISSUE ===",
@@ -360,10 +302,10 @@ function M.show_issue_details(issue)
 
   local ui_config = config.get_ui_config()
 
-  NuiUI.current_popup = popup({
+  GitHubProjectsNuiUI.current_popup = popup.new({
+    lines = lines,
     enter = true,
     focusable = true,
-    relative = "editor",
     position = "50%",
     size = {
       width = ui_config.width,
@@ -381,24 +323,21 @@ function M.show_issue_details(issue)
       cursorline = true,
     },
   }, {
-    on_key = function(key)
-      if key == "q" or key == "<Esc>" then
-        NuiUI.close_current_ui()
-      elseif key == "o" then
-        vim.ui.open(safe_tostring(issue.html_url))
-        NuiUI.close_current_ui()
-      end
-    end,
     on_close = function()
-      NuiUI.current_popup = nil
+      GitHubProjectsNuiUI.current_popup = nil
     end,
   })
 
-  vim.api.nvim_buf_set_lines(NuiUI.current_popup.bufnr, 0, -1, false, lines)
-  NuiUI.current_popup:mount()
+  GitHubProjectsNuiUI.current_popup:mount()
+
+  -- Keymap para abrir URL
+  vim.api.nvim_buf_set_keymap(GitHubProjectsNuiUI.current_popup.bufnr, 'n', 'o',
+    string.format(":lua vim.ui.open('%s'); require('github-projects.ui_nui').close_current_popup()<CR>",
+      safe_tostring(issue.html_url)),
+    { noremap = true, silent = true })
 end
 
--- Função para criar issue (usando nui.input e nui.menu)
+-- Função para criar issue (usando vim.ui.select e vim.ui.input)
 function M.create_issue_form(callback)
   api.get_repositories(function(repos)
     if not repos or #repos == 0 then
@@ -406,91 +345,38 @@ function M.create_issue_form(callback)
       return
     end
 
-    NuiUI.close_current_ui()
-
-    local repo_items = {}
+    local repo_names = {}
     for _, repo in ipairs(repos) do
       local repo_name = safe_tostring(repo.name)
       if repo_name then
-        table.insert(repo_items, { text = repo_name, value = repo_name })
+        table.insert(repo_names, repo_name)
       end
     end
 
-    NuiUI.current_menu = menu({
-      items = repo_items,
-      position = "50%",
-      size = {
-        width = 60,
-        height = math.min(10, #repo_items + 2),
-      },
-      border = {
-        style = "rounded",
-        text = {
-          top = "Selecione o Repositório",
-          top_align = "center",
-        },
-      },
-    }, {
-      on_submit = ffi.cast("vim.menu_cb", function(item)
-        if not item or not item.value then
-          vim.notify("Criação de issue cancelada.", vim.log.levels.INFO)
-          NuiUI.close_current_ui()
+    vim.ui.select(repo_names, {
+      prompt = "Selecione o Repositório:",
+      format_item = function(item) return item end,
+    }, function(selected_repo)
+      if not selected_repo then
+        vim.notify("Criação de issue cancelada.", vim.log.levels.INFO)
+        return
+      end
+
+      vim.ui.input({ prompt = "Título da Issue: " }, function(issue_title)
+        if not issue_title or issue_title == "" then
+          vim.notify("Título é obrigatório. Criação de issue cancelada.", vim.log.levels.ERROR)
           return
         end
-        local selected_repo = item.value
-        NuiUI.close_current_ui() -- Fecha o menu de repositórios
 
-        NuiUI.current_input_title = input({
-          prompt = "Título da Issue: ",
-          default_value = "",
-          position = "50%",
-          size = { width = 80 },
-          border = { style = "rounded" },
-        }, {
-          on_submit = function(issue_title)
-            if not issue_title or issue_title == "" then
-              vim.notify("Título é obrigatório. Criação de issue cancelada.", vim.log.levels.ERROR)
-              NuiUI.close_current_ui()
-              return
-            end
-            NuiUI.current_input_title:unmount() -- Fecha o input de título
-
-            NuiUI.current_input_body = input({
-              prompt = "Descrição (opcional): ",
-              default_value = "",
-              position = "50%",
-              size = { width = 80, height = 10 },
-              border = { style = "rounded" },
-              multiline = true,
-            }, {
-              on_submit = function(issue_body)
-                callback({
-                  repo = selected_repo,
-                  title = issue_title,
-                  body = issue_body or ""
-                })
-                NuiUI.close_current_ui()
-              end,
-              on_close = function()
-                vim.notify("Criação de issue cancelada.", vim.log.levels.INFO)
-                NuiUI.close_current_ui()
-              end,
-            })
-            NuiUI.current_input_body:mount()
-          end,
-          on_close = function()
-            vim.notify("Criação de issue cancelada.", vim.log.levels.INFO)
-            NuiUI.close_current_ui()
-          end,
-        })
-        NuiUI.current_input_title:mount()
-      end),
-      on_close = function()
-        vim.notify("Criação de issue cancelada.", vim.log.levels.INFO)
-        NuiUI.close_current_ui()
-      end,
-    })
-    NuiUI.current_menu:mount()
+        vim.ui.input({ prompt = "Descrição (opcional): " }, function(issue_body)
+          callback({
+            repo = selected_repo,
+            title = issue_title,
+            body = issue_body or ""
+          })
+        end)
+      end)
+    end)
   end)
 end
 
@@ -501,7 +387,7 @@ function M.show_repositories(repos)
     return
   end
 
-  NuiUI.close_current_ui()
+  GitHubProjectsNuiUI.close_current_popup()
 
   local items = {}
   for i, repo in ipairs(repos) do
@@ -519,8 +405,7 @@ function M.show_repositories(repos)
 
   local ui_config = config.get_ui_config()
 
-  NuiUI.current_menu = menu({
-    items = items,
+  GitHubProjectsNuiUI.current_menu = menu.new(items, {
     position = "50%",
     size = {
       width = ui_config.width,
@@ -529,7 +414,7 @@ function M.show_repositories(repos)
     border = {
       style = ui_config.border,
       text = {
-        top = "GitHub Repositories",
+        top = "Selecione um Repositório",
         top_align = "center",
       },
     },
@@ -537,20 +422,21 @@ function M.show_repositories(repos)
       winhighlight = "Normal:Normal,FloatBorder:GitHubProjectsBorder",
       cursorline = true,
     },
+    max_width = ui_config.width,
+    max_height = ui_config.height,
   }, {
-    on_close = function()
-      NuiUI.current_menu = nil
-    end,
-    on_submit = ffi.cast("vim.menu_cb", function(item)
+    on_submit = function(item)
+      GitHubProjectsNuiUI.close_current_popup()
       if item and item.value and item.value.html_url then
         vim.ui.open(item.value.html_url)
       end
-    end),
-    max_width = ui_config.width,
-    max_height = ui_config.height,
+    end,
+    on_close = function()
+      GitHubProjectsNuiUI.current_menu = nil
+    end,
   })
 
-  NuiUI.current_menu:mount()
+  GitHubProjectsNuiUI.current_menu:mount()
 end
 
 return M

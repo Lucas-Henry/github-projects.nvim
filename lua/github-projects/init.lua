@@ -2,17 +2,30 @@ local M = {}
 local config = require('github-projects.config')
 local api = require('github-projects.api')
 
--- Tenta carregar a UI baseada em nui.nvim, com fallback para a UI nativa
-local ui = nil
-local nui_available, nui_popup = pcall(require, 'nui.popup') -- Verifica se nui.popup pode ser carregado
+-- Tentar carregar a UI baseada em nui.nvim, com fallback para a UI nativa
+local ui_module_name = "github-projects.ui" -- Padrão para a UI nativa
+local nui_loaded_successfully = false
 
-if nui_available then
-  vim.notify("DEBUG: Usando nui.nvim UI", vim.log.levels.INFO)
-  ui = require('github-projects.ui_nui') -- Novo arquivo para a UI com nui.nvim
+-- Tenta carregar um módulo central do nui.nvim para verificar sua disponibilidade
+-- Usamos 'nui.popup' pois é um componente comum e se ele carregar, o nui.nvim está funcional.
+local ok, nui_test_module = pcall(require, 'nui.popup')
+if ok then
+  -- Se nui.nvim pode ser requerido, tenta carregar nossa UI baseada em nui
+  local ui_nui_ok, ui_nui_module = pcall(require, 'github-projects.ui_nui')
+  if ui_nui_ok then
+    ui_module_name = "github-projects.ui_nui"
+    nui_loaded_successfully = true
+    vim.notify("DEBUG: Usando nui.nvim UI", vim.log.levels.INFO)
+  else
+    vim.notify("DEBUG: Falha ao carregar github-projects.ui_nui, usando UI nativa. Erro: " .. tostring(ui_nui_module),
+      vim.log.levels.WARN)
+  end
 else
-  vim.notify("DEBUG: nui.nvim não disponível, usando UI nativa como fallback", vim.log.levels.INFO)
-  ui = require('github-projects.ui') -- Seu arquivo ui.lua atual
+  vim.notify("DEBUG: nui.nvim não encontrado ou com erro, usando UI nativa. Erro: " .. tostring(nui_test_module),
+    vim.log.levels.WARN)
 end
+
+local ui = require(ui_module_name) -- Agora carrega o módulo de UI escolhido
 
 function M.setup(opts)
   vim.notify("DEBUG: init.lua M.setup started", vim.log.levels.INFO)
