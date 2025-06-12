@@ -201,47 +201,51 @@ function M.show_issues_kanban(statuses, issues_by_status, project_title)
       cursorline = false,
     },
     buf_options = {
-      modifiable = false,
-      readonly = true,
+      modifiable = true, -- Temporariamente definido como true
     },
+    enter = true,        -- Garante que o foco vai para o popup
   })
 
   -- Mount popup before adding content
   GitHubProjectsNuiUI.current_popup:mount()
 
-  -- Make sure the popup captures all keyboard input
-  vim.api.nvim_buf_set_option(GitHubProjectsNuiUI.current_popup.bufnr, 'modifiable', false)
-  vim.api.nvim_win_set_option(GitHubProjectsNuiUI.current_popup.winid, 'wrap', false)
-
   -- Draw the Kanban board
   M.render_kanban_view()
 
+  -- Torne o buffer não modificável após desenhar o conteúdo
+  local bufnr = GitHubProjectsNuiUI.current_popup.bufnr
+  vim.api.nvim_buf_set_option(bufnr, 'modifiable', false)
+  vim.api.nvim_buf_set_option(bufnr, 'readonly', true)
+
+  -- Garanta que o foco está no popup
+  vim.api.nvim_set_current_win(GitHubProjectsNuiUI.current_popup.winid)
+
   -- Setup keymaps for navigation
-  vim.api.nvim_buf_set_keymap(GitHubProjectsNuiUI.current_popup.bufnr, 'n', 'j',
+  vim.api.nvim_buf_set_keymap(bufnr, 'n', 'j',
     ":lua require('github-projects.ui_nui')._move_selection('down')<CR>",
     { noremap = true, silent = true })
 
-  vim.api.nvim_buf_set_keymap(GitHubProjectsNuiUI.current_popup.bufnr, 'n', 'k',
+  vim.api.nvim_buf_set_keymap(bufnr, 'n', 'k',
     ":lua require('github-projects.ui_nui')._move_selection('up')<CR>",
     { noremap = true, silent = true })
 
-  vim.api.nvim_buf_set_keymap(GitHubProjectsNuiUI.current_popup.bufnr, 'n', 'h',
+  vim.api.nvim_buf_set_keymap(bufnr, 'n', 'h',
     ":lua require('github-projects.ui_nui')._move_selection('left')<CR>",
     { noremap = true, silent = true })
 
-  vim.api.nvim_buf_set_keymap(GitHubProjectsNuiUI.current_popup.bufnr, 'n', 'l',
+  vim.api.nvim_buf_set_keymap(bufnr, 'n', 'l',
     ":lua require('github-projects.ui_nui')._move_selection('right')<CR>",
     { noremap = true, silent = true })
 
-  vim.api.nvim_buf_set_keymap(GitHubProjectsNuiUI.current_popup.bufnr, 'n', '<CR>',
+  vim.api.nvim_buf_set_keymap(bufnr, 'n', '<CR>',
     ":lua require('github-projects.ui_nui')._select_current_issue()<CR>",
     { noremap = true, silent = true })
 
-  vim.api.nvim_buf_set_keymap(GitHubProjectsNuiUI.current_popup.bufnr, 'n', 'q',
+  vim.api.nvim_buf_set_keymap(bufnr, 'n', 'q',
     ":lua require('github-projects.ui_nui').close_current_popup()<CR>",
     { noremap = true, silent = true })
 
-  vim.api.nvim_buf_set_keymap(GitHubProjectsNuiUI.current_popup.bufnr, 'n', '<Esc>',
+  vim.api.nvim_buf_set_keymap(bufnr, 'n', '<Esc>',
     ":lua require('github-projects.ui_nui').close_current_popup()<CR>",
     { noremap = true, silent = true })
 end
@@ -277,7 +281,7 @@ function M.render_kanban_view()
   local popup_width = GitHubProjectsNuiUI.current_popup.win_config.width
   local popup_height = GitHubProjectsNuiUI.current_popup.win_config.height
 
-  -- Set buffer as modifiable temporarily
+  -- Certifique-se de que o buffer é modificável
   vim.api.nvim_buf_set_option(bufnr, 'modifiable', true)
 
   -- Clear buffer
@@ -398,9 +402,6 @@ function M.render_kanban_view()
   local help_padding = math.floor((popup_width - vim.fn.strwidth(help_text)) / 2)
   local help_line = string.rep(" ", help_padding) .. help_text
   vim.api.nvim_buf_set_lines(bufnr, popup_height - 1, popup_height, false, { help_line })
-
-  -- Set buffer as readonly again
-  vim.api.nvim_buf_set_option(bufnr, 'modifiable', false)
 
   -- Apply highlights
   local ns_id = vim.api.nvim_create_namespace("GitHubProjectsKanban")
@@ -667,24 +668,22 @@ function M.show_issue_details(issue)
       winhighlight = "Normal:Normal",
     },
     buf_options = {
-      modifiable = false,
-      readonly = true,
+      modifiable = true, -- Temporariamente definido como true
     },
   })
 
+  -- Monte o popup primeiro
   GitHubProjectsNuiUI.current_popup:mount()
 
-  -- Set buffer as modifiable temporarily
-  vim.api.nvim_buf_set_option(GitHubProjectsNuiUI.current_popup.bufnr, 'modifiable', true)
+  -- Agora defina as linhas diretamente usando nvim_buf_set_lines
+  local bufnr = GitHubProjectsNuiUI.current_popup.bufnr
+  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
 
-  -- Set content
-  GitHubProjectsNuiUI.current_popup:set_lines(lines)
-
-  -- Set buffer as readonly again
-  vim.api.nvim_buf_set_option(GitHubProjectsNuiUI.current_popup.bufnr, 'modifiable', false)
+  -- Torne o buffer não modificável após definir as linhas
+  vim.api.nvim_buf_set_option(bufnr, 'modifiable', false)
+  vim.api.nvim_buf_set_option(bufnr, 'readonly', true)
 
   -- Apply highlights
-  local bufnr = GitHubProjectsNuiUI.current_popup.bufnr
   local ns_id = vim.api.nvim_create_namespace("GitHubProjectsIssueDetails")
 
   -- Borders
@@ -705,16 +704,16 @@ function M.show_issue_details(issue)
   vim.api.nvim_buf_add_highlight(bufnr, ns_id, "GitHubProjectsURL", 10, 8, -2)
 
   -- Keymap to open URL
-  vim.api.nvim_buf_set_keymap(GitHubProjectsNuiUI.current_popup.bufnr, 'n', 'o',
+  vim.api.nvim_buf_set_keymap(bufnr, 'n', 'o',
     string.format(":lua vim.ui.open('%s'); require('github-projects.ui_nui').close_current_popup()<CR>",
       safe_str(issue.html_url)),
     { noremap = true, silent = true })
 
   -- Keymap to close
-  vim.api.nvim_buf_set_keymap(GitHubProjectsNuiUI.current_popup.bufnr, 'n', 'q',
+  vim.api.nvim_buf_set_keymap(bufnr, 'n', 'q',
     ":lua require('github-projects.ui_nui').close_current_popup()<CR>",
     { noremap = true, silent = true })
-  vim.api.nvim_buf_set_keymap(GitHubProjectsNuiUI.current_popup.bufnr, 'n', '<Esc>',
+  vim.api.nvim_buf_set_keymap(bufnr, 'n', '<Esc>',
     ":lua require('github-projects.ui_nui').close_current_popup()<CR>",
     { noremap = true, silent = true })
 end
