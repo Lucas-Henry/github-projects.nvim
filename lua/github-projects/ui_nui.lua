@@ -6,8 +6,6 @@ local api = require('github-projects.api')
 local popup = require('nui.popup')
 local menu = require('nui.menu')
 
-vim.notify("DEBUG: ui_nui.lua loaded (visual Kanban mode)", vim.log.levels.INFO)
-
 -- UI manager
 local GitHubProjectsNuiUI = {}
 GitHubProjectsNuiUI.current_popup = nil
@@ -17,7 +15,9 @@ GitHubProjectsNuiUI.current_column = 1
 GitHubProjectsNuiUI.current_selection = 1
 GitHubProjectsNuiUI.columns = {}
 GitHubProjectsNuiUI.issues_by_column = {}
+GitHubProjectsNuiUI.current_project = nil
 
+-- Close current popup
 function GitHubProjectsNuiUI.close_current_popup()
   if GitHubProjectsNuiUI.current_popup then
     GitHubProjectsNuiUI.current_popup:unmount()
@@ -32,12 +32,13 @@ function GitHubProjectsNuiUI.close_current_popup()
   GitHubProjectsNuiUI.current_selection = 1
   GitHubProjectsNuiUI.columns = {}
   GitHubProjectsNuiUI.issues_by_column = {}
+  GitHubProjectsNuiUI.current_project = nil
 end
 
 -- Helper for safe string conversion
 local function safe_str(value)
   if value == nil or value == vim.NIL then
-    return nil
+    return ""
   end
   if type(value) == "string" then
     return value
@@ -66,6 +67,8 @@ local function setup_highlights()
   vim.api.nvim_set_hl(0, "GitHubProjectsKanbanClosedItem", { fg = "#E06C75", bg = "NONE" })
   vim.api.nvim_set_hl(0, "GitHubProjectsKanbanInProgressItem", { fg = "#E5C07B", bg = "NONE" })
   vim.api.nvim_set_hl(0, "GitHubProjectsKanbanDoneItem", { fg = "#56B6C2", bg = "NONE" })
+  vim.api.nvim_set_hl(0, "GitHubProjectsKanbanTodoItem", { fg = "#ABB2BF", bg = "NONE" })
+  vim.api.nvim_set_hl(0, "GitHubProjectsKanbanBacklogItem", { fg = "#ABB2BF", bg = "NONE" })
 end
 setup_highlights()
 
@@ -90,8 +93,8 @@ function M.show_projects(projects)
 
   local items = {}
   for _, project in ipairs(projects) do
-    local title = safe_str(project.title) or "Untitled"
-    local number = safe_str(project.number) or "N/A"
+    local title = safe_str(project.title)
+    local number = safe_str(project.number)
     local short_desc = safe_str(project.shortDescription)
     local updated_at = safe_str(project.updatedAt)
 
@@ -138,12 +141,15 @@ function M.show_projects(projects)
       GitHubProjectsNuiUI.close_current_popup()
       if item and item.value then
         local project = item.value
-        vim.notify("Loading issues for project: " .. project.title, vim.log.levels.INFO)
-        api.get_issues(nil, function(issues)
-          if issues then
-            M.show_issues_kanban(issues, project.title)
+        vim.notify("Loading project: " .. project.title, vim.log.levels.INFO)
+
+        -- Get project details with custom fields and statuses
+        api.get_project_details(project.number, function(project_data)
+          if project_data then
+            GitHubProjectsNuiUI.current_project = project_data.project
+            M.show_issues_kanban(project_data.statuses, project_data.issues_by_status, project.title)
           else
-            vim.notify("Error loading issues for project", vim.log.levels.ERROR)
+            vim.notify("Error loading project details", vim.log.levels.ERROR)
           end
         end)
       end
@@ -153,85 +159,24 @@ function M.show_projects(projects)
   GitHubProjectsNuiUI.current_menu:mount()
 end
 
--- Group issues by status for Kanban view
-local function group_issues_by_status(issues)
-  -- Default columns if no custom statuses are found
-  local columns = {
-    { id = "open", name = "🟢 OPEN", icon = "🟢" },
-    { id = "closed", name = "🔴 CLOSED", icon = "🔴" }
-  }
-
-  local issues_by_column = {}
-  issues_by_column["open"] = {}
-  issues_by_column["closed"] = {}
-
-  -- First pass: collect all unique statuses
-  local status_set = {}
-  for _, issue in ipairs(issues) do
-    local status = issue.status or (issue.state == "open" and "open" or "closed")
-    status_set[status] = true
-  end
-
-  -- If we have custom statuses, use them instead
-  local custom_statuses = {}
-  for status, _ in pairs(status_set) do
-    if status ~= "open" and status ~= "closed" then
-      table.insert(custom_statuses, status)
-    end
-  end
-
-  if #custom_statuses > 0 then
-    columns = {}
-    for _, status in ipairs(custom_statuses) do
-      local icon = "📋"
-      if status:lower():match("progress") then
-        icon = "🔄"
-      elseif status:lower():match("done") or status:lower():match("complete") then
-        icon = "✅"
-      elseif status:lower():match("todo") or status:lower():match("backlog") then
-        icon = "📝"
-      elseif status:lower():match("review") then
-        icon = "👀"
-      end
-
-      table.insert(columns, { id = status, name = icon .. " " .. status:upper(), icon = icon })
-      issues_by_column[status] = {}
-    end
-  end
-
-  -- Group issues by status
-  for _, issue in ipairs(issues) do
-    local status = issue.status or (issue.state == "open" and "open" or "closed")
-    if issues_by_column[status] then
-      table.insert(issues_by_column[status], issue)
-    else
-      -- Fallback to open/closed if status doesn't match any column
-      local fallback = issue.state == "open" and "open" or "closed"
-      if not issues_by_column[fallback] then
-        issues_by_column[fallback] = {}
-      end
-      table.insert(issues_by_column[fallback], issue)
-    end
-  end
-
-  return columns, issues_by_column
-end
-
 -- Show issues in a visual Kanban board
-function M.show_issues_kanban(issues, project_title)
-  if not issues or #issues == 0 then
-    vim.notify("No issues found", vim.log.levels.WARN)
+function M.show_issues_kanban(statuses, issues_by_status, project_title)
+  if not statuses or #statuses == 0 then
+    vim.notify("No statuses found for this project", vim.log.levels.WARN)
     return
   end
 
   GitHubProjectsNuiUI.close_current_popup()
 
-  -- Group issues by status
-  local columns, issues_by_column = group_issues_by_status(issues)
-
   -- Store for later use
-  GitHubProjectsNuiUI.columns = columns
-  GitHubProjectsNuiUI.issues_by_column = issues_by_column
+  GitHubProjectsNuiUI.columns = statuses
+  GitHubProjectsNuiUI.issues_by_column = {}
+
+  -- Convert issues_by_status to issues_by_column format
+  for i, status in ipairs(statuses) do
+    local status_name = status.name
+    GitHubProjectsNuiUI.issues_by_column[i] = issues_by_status[status_name] or {}
+  end
 
   local ui_config = config.get_ui_config()
   local popup_width = ui_config.width
@@ -255,10 +200,18 @@ function M.show_issues_kanban(issues, project_title)
       winhighlight = "Normal:Normal,FloatBorder:GitHubProjectsBorder",
       cursorline = false,
     },
+    buf_options = {
+      modifiable = false,
+      readonly = true,
+    },
   })
 
   -- Mount popup before adding content
   GitHubProjectsNuiUI.current_popup:mount()
+
+  -- Make sure the popup captures all keyboard input
+  vim.api.nvim_buf_set_option(GitHubProjectsNuiUI.current_popup.bufnr, 'modifiable', false)
+  vim.api.nvim_win_set_option(GitHubProjectsNuiUI.current_popup.winid, 'wrap', false)
 
   -- Draw the Kanban board
   M.render_kanban_view()
@@ -293,6 +246,27 @@ function M.show_issues_kanban(issues, project_title)
     { noremap = true, silent = true })
 end
 
+-- Get status icon and color
+local function get_status_style(status_name)
+  local name = status_name:lower()
+
+  if name == "open" or name == "todo" or name == "backlog" or name:match("to%s*do") then
+    return "📋", "GitHubProjectsKanbanTodoItem"
+  elseif name == "in progress" or name:match("progress") or name:match("doing") then
+    return "🔄", "GitHubProjectsKanbanInProgressItem"
+  elseif name == "done" or name == "complete" or name:match("done") or name:match("complete") then
+    return "✅", "GitHubProjectsKanbanDoneItem"
+  elseif name == "closed" then
+    return "🔴", "GitHubProjectsKanbanClosedItem"
+  elseif name:match("review") or name:match("testing") then
+    return "👀", "GitHubProjectsKanbanInProgressItem"
+  elseif name:match("block") then
+    return "🚫", "GitHubProjectsKanbanClosedItem"
+  else
+    return "📌", "GitHubProjectsKanbanItem"
+  end
+end
+
 -- Render the Kanban board
 function M.render_kanban_view()
   if not GitHubProjectsNuiUI.current_popup then
@@ -302,6 +276,9 @@ function M.render_kanban_view()
   local bufnr = GitHubProjectsNuiUI.current_popup.bufnr
   local popup_width = GitHubProjectsNuiUI.current_popup.win_config.width
   local popup_height = GitHubProjectsNuiUI.current_popup.win_config.height
+
+  -- Set buffer as modifiable temporarily
+  vim.api.nvim_buf_set_option(bufnr, 'modifiable', true)
 
   -- Clear buffer
   vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, {})
@@ -328,10 +305,11 @@ function M.render_kanban_view()
   -- Draw column titles
   local title_line = "│"
   for i, column in ipairs(columns) do
-    local title = column.name
-    local padding = math.floor((column_width - #title) / 2)
+    local icon, _ = get_status_style(column.name)
+    local title = icon .. " " .. column.name:upper()
+    local padding = math.floor((column_width - vim.fn.strwidth(title)) / 2)
     title_line = title_line .. string.rep(" ", padding) .. title ..
-        string.rep(" ", column_width - padding - #title) .. "│"
+        string.rep(" ", column_width - padding - vim.fn.strwidth(title)) .. "│"
   end
   vim.api.nvim_buf_set_lines(bufnr, 1, 2, false, { title_line })
 
@@ -348,8 +326,8 @@ function M.render_kanban_view()
 
   -- Find max issues to display
   local max_issues = 0
-  for _, column in ipairs(columns) do
-    local column_issues = issues_by_column[column.id] or {}
+  for i = 1, num_columns do
+    local column_issues = issues_by_column[i] or {}
     max_issues = math.max(max_issues, #column_issues)
   end
 
@@ -364,18 +342,18 @@ function M.render_kanban_view()
   for i = 1, visible_issues do
     local content_line = "│"
 
-    for col_idx, column in ipairs(columns) do
-      local column_issues = issues_by_column[column.id] or {}
+    for col_idx = 1, num_columns do
+      local column_issues = issues_by_column[col_idx] or {}
       local issue_text = ""
 
       if i <= #column_issues then
         local issue = column_issues[i]
-        local number = safe_str(issue.number) or "?"
-        local title = safe_str(issue.title) or "Untitled"
+        local number = safe_str(issue.number)
+        local title = safe_str(issue.title)
 
         -- Truncate title if needed
-        if #title > column_width - 6 then
-          title = title:sub(1, column_width - 9) .. "..."
+        if vim.fn.strwidth(title) > column_width - 6 then
+          title = vim.fn.strcharpart(title, 0, column_width - 9) .. "..."
         end
 
         issue_text = "#" .. number .. ": " .. title
@@ -385,7 +363,10 @@ function M.render_kanban_view()
       end
 
       -- Pad with spaces
-      issue_text = issue_text .. string.rep(" ", column_width - #issue_text)
+      local padding = column_width - vim.fn.strwidth(issue_text)
+      if padding > 0 then
+        issue_text = issue_text .. string.rep(" ", padding)
+      end
       content_line = content_line .. issue_text .. "│"
     end
 
@@ -414,9 +395,12 @@ function M.render_kanban_view()
 
   -- Add help text
   local help_text = "Navigation: ←/→ (columns) ↑/↓ (issues) | Enter: Select | q/Esc: Exit"
-  local help_padding = math.floor((popup_width - #help_text) / 2)
+  local help_padding = math.floor((popup_width - vim.fn.strwidth(help_text)) / 2)
   local help_line = string.rep(" ", help_padding) .. help_text
   vim.api.nvim_buf_set_lines(bufnr, popup_height - 1, popup_height, false, { help_line })
+
+  -- Set buffer as readonly again
+  vim.api.nvim_buf_set_option(bufnr, 'modifiable', false)
 
   -- Apply highlights
   local ns_id = vim.api.nvim_create_namespace("GitHubProjectsKanban")
@@ -430,12 +414,7 @@ function M.render_kanban_view()
   -- Highlight column titles
   local col_start = 1
   for i, column in ipairs(columns) do
-    local highlight_group = "GitHubProjectsKanbanHeader"
-    if column.id == "open" then
-      highlight_group = "GitHubProjectsKanbanOpenHeader"
-    elseif column.id == "closed" then
-      highlight_group = "GitHubProjectsKanbanClosedHeader"
-    end
+    local _, highlight_group = get_status_style(column.name)
 
     -- Safe highlight application with bounds checking
     local col_end = col_start + column_width
@@ -450,28 +429,20 @@ function M.render_kanban_view()
     local line_idx = 2 + i
     local col_start = 0
 
-    for col_idx, column in ipairs(columns) do
+    for col_idx = 1, num_columns do
       -- Highlight border characters
       vim.api.nvim_buf_add_highlight(bufnr, ns_id, "GitHubProjectsKanbanBorder", line_idx, col_start, col_start + 1)
       col_start = col_start + 1
 
       -- Highlight issue content if exists
-      local column_issues = issues_by_column[column.id] or {}
+      local column_issues = issues_by_column[col_idx] or {}
       if i <= #column_issues then
-        local highlight_group = "GitHubProjectsKanbanItem"
-        if column.id == "open" then
-          highlight_group = "GitHubProjectsKanbanOpenItem"
-        elseif column.id == "closed" then
-          highlight_group = "GitHubProjectsKanbanClosedItem"
-        elseif column.id:lower():match("progress") then
-          highlight_group = "GitHubProjectsKanbanInProgressItem"
-        elseif column.id:lower():match("done") or column.id:lower():match("complete") then
-          highlight_group = "GitHubProjectsKanbanDoneItem"
-        end
+        local issue = column_issues[i]
+        local _, highlight_group = get_status_style(columns[col_idx].name)
 
         -- Safe highlight application with bounds checking
         local col_end = col_start + column_width
-        if col_end <= #title_line then
+        if col_end <= popup_width then
           vim.api.nvim_buf_add_highlight(bufnr, ns_id, highlight_group, line_idx, col_start, col_end)
         end
       end
@@ -543,8 +514,7 @@ function M._move_selection(direction)
 
   local columns = GitHubProjectsNuiUI.columns
   local issues_by_column = GitHubProjectsNuiUI.issues_by_column
-  local current_column_id = columns[GitHubProjectsNuiUI.current_column].id
-  local current_column_issues = issues_by_column[current_column_id] or {}
+  local current_column_issues = issues_by_column[GitHubProjectsNuiUI.current_column] or {}
 
   if direction == "up" then
     GitHubProjectsNuiUI.current_selection = math.max(1, GitHubProjectsNuiUI.current_selection - 1)
@@ -557,8 +527,7 @@ function M._move_selection(direction)
   elseif direction == "left" then
     if GitHubProjectsNuiUI.current_column > 1 then
       GitHubProjectsNuiUI.current_column = GitHubProjectsNuiUI.current_column - 1
-      local new_column_id = columns[GitHubProjectsNuiUI.current_column].id
-      local new_column_issues = issues_by_column[new_column_id] or {}
+      local new_column_issues = issues_by_column[GitHubProjectsNuiUI.current_column] or {}
       GitHubProjectsNuiUI.current_selection = math.min(GitHubProjectsNuiUI.current_selection, #new_column_issues)
       if GitHubProjectsNuiUI.current_selection == 0 then
         GitHubProjectsNuiUI.current_selection = 1
@@ -567,8 +536,7 @@ function M._move_selection(direction)
   elseif direction == "right" then
     if GitHubProjectsNuiUI.current_column < #columns then
       GitHubProjectsNuiUI.current_column = GitHubProjectsNuiUI.current_column + 1
-      local new_column_id = columns[GitHubProjectsNuiUI.current_column].id
-      local new_column_issues = issues_by_column[new_column_id] or {}
+      local new_column_issues = issues_by_column[GitHubProjectsNuiUI.current_column] or {}
       GitHubProjectsNuiUI.current_selection = math.min(GitHubProjectsNuiUI.current_selection, #new_column_issues)
       if GitHubProjectsNuiUI.current_selection == 0 then
         GitHubProjectsNuiUI.current_selection = 1
@@ -606,32 +574,18 @@ function M.show_issue_details(issue)
   table.insert(lines, "╭" .. string.rep("─", width) .. "╮")
   table.insert(lines, "│ " .. string.rep(" ", width - 2) .. " │")
 
-  local title = safe_str(issue.title) or "Untitled"
+  local title = safe_str(issue.title)
   local title_line = "│  " .. title
-  title_line = title_line .. string.rep(" ", width - #title_line - 1) .. "│"
+  title_line = title_line .. string.rep(" ", width - vim.fn.strwidth(title_line) - 1) .. "│"
   table.insert(lines, title_line)
 
-  local number = "#" .. (safe_str(issue.number) or "?")
-  local state = safe_str(issue.state) or "unknown"
+  local number = "#" .. safe_str(issue.number)
+  local state = safe_str(issue.state)
   local status = safe_str(issue.status) or state
-  local state_icon = "📋"
-
-  if status:lower() == "open" then
-    state_icon = "🟢"
-  elseif status:lower() == "closed" then
-    state_icon = "🔴"
-  elseif status:lower():match("progress") then
-    state_icon = "🔄"
-  elseif status:lower():match("done") or status:lower():match("complete") then
-    state_icon = "✅"
-  elseif status:lower():match("todo") or status:lower():match("backlog") then
-    state_icon = "📝"
-  elseif status:lower():match("review") then
-    state_icon = "👀"
-  end
+  local state_icon, _ = get_status_style(status)
 
   local info_line = "│  " .. number .. " - " .. state_icon .. " " .. status:upper()
-  info_line = info_line .. string.rep(" ", width - #info_line - 1) .. "│"
+  info_line = info_line .. string.rep(" ", width - vim.fn.strwidth(info_line) - 1) .. "│"
   table.insert(lines, info_line)
 
   table.insert(lines, "│ " .. string.rep(" ", width - 2) .. " │")
@@ -644,36 +598,38 @@ function M.show_issue_details(issue)
       table.insert(labels, safe_str(label.name))
     end
     local labels_line = "│  Labels: " .. table.concat(labels, ", ")
-    labels_line = labels_line .. string.rep(" ", width - #labels_line - 1) .. "│"
+    labels_line = labels_line .. string.rep(" ", width - vim.fn.strwidth(labels_line) - 1) .. "│"
     table.insert(lines, labels_line)
   else
     table.insert(lines, "│  Labels: None" .. string.rep(" ", width - 15) .. "│")
   end
 
-  -- Assignee and Author
+  -- Assignees (safely handle nil)
   local assignee_line = "│  Assignee: "
-  if issue.assignee and issue.assignee.login then
-    assignee_line = assignee_line .. safe_str(issue.assignee.login)
+  if issue.assignees and type(issue.assignees) == "table" and #issue.assignees > 0 then
+    local assignees = {}
+    for _, assignee in ipairs(issue.assignees) do
+      if type(assignee) == "table" and assignee.login then
+        table.insert(assignees, safe_str(assignee.login))
+      end
+    end
+    assignee_line = assignee_line .. table.concat(assignees, ", ")
   else
     assignee_line = assignee_line .. "None"
   end
-  assignee_line = assignee_line .. string.rep(" ", width - #assignee_line - 1) .. "│"
+  assignee_line = assignee_line .. string.rep(" ", width - vim.fn.strwidth(assignee_line) - 1) .. "│"
   table.insert(lines, assignee_line)
 
-  local author_line = "│  Author: "
-  if issue.user and issue.user.login then
-    author_line = author_line .. safe_str(issue.user.login)
-  else
-    author_line = author_line .. "Unknown"
-  end
-  author_line = author_line .. string.rep(" ", width - #author_line - 1) .. "│"
-  table.insert(lines, author_line)
+  -- Repository
+  local repo_line = "│  Repository: " .. (issue.repository or "Unknown")
+  repo_line = repo_line .. string.rep(" ", width - vim.fn.strwidth(repo_line) - 1) .. "│"
+  table.insert(lines, repo_line)
 
   table.insert(lines, "│ " .. string.rep(" ", width - 2) .. " │")
 
   -- URL
   local url_line = "│  URL: " .. (safe_str(issue.html_url) or "N/A")
-  url_line = url_line .. string.rep(" ", width - #url_line - 1) .. "│"
+  url_line = url_line .. string.rep(" ", width - vim.fn.strwidth(url_line) - 1) .. "│"
   table.insert(lines, url_line)
 
   table.insert(lines, "│ " .. string.rep(" ", width - 2) .. " │")
@@ -685,12 +641,12 @@ function M.show_issue_details(issue)
   local body_lines = vim.split(safe_str(issue.body) or "No description.", "\n")
   for _, line in ipairs(body_lines) do
     -- Break long lines
-    while #line > width - 6 do
-      local display_line = line:sub(1, width - 6)
-      line = line:sub(width - 5)
-      table.insert(lines, "│  " .. display_line .. string.rep(" ", width - #display_line - 4) .. "  │")
+    while vim.fn.strwidth(line) > width - 6 do
+      local display_line = vim.fn.strcharpart(line, 0, width - 6)
+      line = vim.fn.strcharpart(line, vim.fn.strwidth(display_line))
+      table.insert(lines, "│  " .. display_line .. string.rep(" ", width - vim.fn.strwidth(display_line) - 4) .. "  │")
     end
-    table.insert(lines, "│  " .. line .. string.rep(" ", width - #line - 4) .. "  │")
+    table.insert(lines, "│  " .. line .. string.rep(" ", width - vim.fn.strwidth(line) - 4) .. "  │")
   end
 
   table.insert(lines, "│ " .. string.rep(" ", width - 2) .. " │")
@@ -710,10 +666,22 @@ function M.show_issue_details(issue)
     win_options = {
       winhighlight = "Normal:Normal",
     },
+    buf_options = {
+      modifiable = false,
+      readonly = true,
+    },
   })
 
   GitHubProjectsNuiUI.current_popup:mount()
+
+  -- Set buffer as modifiable temporarily
+  vim.api.nvim_buf_set_option(GitHubProjectsNuiUI.current_popup.bufnr, 'modifiable', true)
+
+  -- Set content
   GitHubProjectsNuiUI.current_popup:set_lines(lines)
+
+  -- Set buffer as readonly again
+  vim.api.nvim_buf_set_option(GitHubProjectsNuiUI.current_popup.bufnr, 'modifiable', false)
 
   -- Apply highlights
   local bufnr = GitHubProjectsNuiUI.current_popup.bufnr
@@ -730,16 +698,7 @@ function M.show_issue_details(issue)
   vim.api.nvim_buf_add_highlight(bufnr, ns_id, "GitHubProjectsTitle", 2, 3, -2)
 
   -- Status
-  local status_highlight = "GitHubProjectsKanbanItem"
-  if status:lower() == "open" then
-    status_highlight = "GitHubProjectsKanbanOpenItem"
-  elseif status:lower() == "closed" then
-    status_highlight = "GitHubProjectsKanbanClosedItem"
-  elseif status:lower():match("progress") then
-    status_highlight = "GitHubProjectsKanbanInProgressItem"
-  elseif status:lower():match("done") or status:lower():match("complete") then
-    status_highlight = "GitHubProjectsKanbanDoneItem"
-  end
+  local _, status_highlight = get_status_style(issue.status or issue.state)
   vim.api.nvim_buf_add_highlight(bufnr, ns_id, status_highlight, 3, 3, -2)
 
   -- URL
@@ -771,7 +730,7 @@ function M.create_issue_form(callback)
     local repo_names = {}
     for _, repo in ipairs(repos) do
       local repo_name = safe_str(repo.name)
-      if repo_name then
+      if repo_name ~= "" then
         table.insert(repo_names, repo_name)
       end
     end
@@ -814,10 +773,10 @@ function M.show_repositories(repos)
 
   local items = {}
   for _, repo in ipairs(repos) do
-    local repo_name = safe_str(repo.name) or "Unnamed"
-    local description = safe_str(repo.description) or "No description"
-    local language = safe_str(repo.language) or "N/A"
-    local stars = safe_str(repo.stargazers_count) or "0"
+    local repo_name = safe_str(repo.name)
+    local description = safe_str(repo.description)
+    local language = safe_str(repo.language)
+    local stars = safe_str(repo.stargazers_count)
     local private_str = repo.private and "🔒 Private" or "🌐 Public"
     local updated_at = safe_str(repo.updated_at)
 
