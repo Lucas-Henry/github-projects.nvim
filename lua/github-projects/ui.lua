@@ -50,12 +50,9 @@ local function create_floating_window(opts)
     zindex = 100,
   })
 
-  -- REMOVIDO: vim.api.nvim_win_set_option(win_id, 'title', title)
-  -- REMOVIDO: vim.api.nvim_win_set_option(win_id, 'title_pos', 'center')
-
   -- Set window options
   vim.api.nvim_win_set_option(win_id, 'winhighlight', 'Normal:Normal,FloatBorder:GitHubProjectsBorder')
-  vim.api.nvim_win_set_option(win_id, 'cursorline', false)
+  vim.api.nvim_win_set_option(win_id, 'cursorline', true) -- Ativar cursorline para melhor navegação
   vim.api.nvim_win_set_option(win_id, 'number', false)
   vim.api.nvim_win_set_option(win_id, 'relativenumber', false)
 
@@ -70,6 +67,7 @@ end
 local GitHubProjectsUI = {}
 GitHubProjectsUI.current_win_id = nil
 GitHubProjectsUI.current_buf_id = nil
+GitHubProjectsUI.current_issues_data = nil -- Para armazenar as issues do Kanban
 
 function GitHubProjectsUI.close_current_popup()
   if GitHubProjectsUI.current_win_id and vim.api.nvim_win_is_valid(GitHubProjectsUI.current_win_id) then
@@ -80,6 +78,7 @@ function GitHubProjectsUI.close_current_popup()
   end
   GitHubProjectsUI.current_win_id = nil
   GitHubProjectsUI.current_buf_id = nil
+  GitHubProjectsUI.current_issues_data = nil
 end
 
 -- Highlight groups para a UI (mantidos)
@@ -135,8 +134,7 @@ function M.show_projects(projects)
   end)
 end
 
--- Função para exibir issues em um formato Kanban-like (Open/Closed)
--- Implementado com duas janelas flutuantes básicas
+-- Função para exibir issues em um formato Kanban-like (Open/Closed) em uma única janela
 function M.show_issues_kanban(issues, project_title)
   if not issues or #issues == 0 then
     vim.notify("Nenhuma issue encontrada", vim.log.levels.WARN)
@@ -174,76 +172,79 @@ function M.show_issues_kanban(issues, project_title)
   local ui_config = config.get_ui_config()
   local popup_height = ui_config.height
   local popup_width = ui_config.width
-  local half_width = math.floor(popup_width / 2)
 
-  -- Open Issues Window
-  local open_win_id, open_buf_id = create_floating_window({
-    title = "🟢 Open Issues",
-    width = half_width,
-    height = popup_height,
-    col = math.floor((vim.o.columns - popup_width) / 2),
-    row = math.floor((vim.o.lines - popup_height) / 2),
-  })
-  GitHubProjectsUI.current_win_id = open_win_id -- Armazena a primeira janela como "atual"
-  GitHubProjectsUI.current_buf_id = open_buf_id
+  local lines = {}
+  local issue_map = {} -- Mapeia o índice da linha para a issue real
+  local current_line_idx = 0
 
-  local open_lines = {}
-  for i, issue in ipairs(open_issues) do
-    table.insert(open_lines, format_issue_line(issue))
-  end
-  vim.api.nvim_buf_set_lines(open_buf_id, 0, -1, false, open_lines)
-
-  -- Closed Issues Window
-  local closed_win_id, closed_buf_id = create_floating_window({
-    title = "🔴 Closed Issues",
-    width = popup_width - half_width, -- Ajusta para preencher o restante
-    height = popup_height,
-    col = math.floor((vim.o.columns - popup_width) / 2) + half_width,
-    row = math.floor((vim.o.lines - popup_height) / 2),
-  })
-
-  local closed_lines = {}
-  for i, issue in ipairs(closed_issues) do
-    table.insert(closed_lines, format_issue_line(issue))
-  end
-  vim.api.nvim_buf_set_lines(closed_buf_id, 0, -1, false, closed_lines)
-
-  -- Keymaps para navegação entre janelas e ações
-  vim.api.nvim_buf_set_keymap(open_buf_id, 'n', '<CR>',
-    string.format(":lua require('github-projects.ui')._handle_issue_selection(%d, %s)<CR>", open_buf_id,
-      vim.json.encode(open_issues)),
-    { noremap = true, silent = true })
-  vim.api.nvim_buf_set_keymap(closed_buf_id, 'n', '<CR>',
-    string.format(":lua require('github-projects.ui')._handle_issue_selection(%d, %s)<CR>", closed_buf_id,
-      vim.json.encode(closed_issues)),
-    { noremap = true, silent = true })
-
-  vim.api.nvim_buf_set_keymap(open_buf_id, 'n', 'l', string.format(":call win_gotoid(%d)<CR>", closed_win_id),
-    { noremap = true, silent = true })
-  vim.api.nvim_buf_set_keymap(closed_buf_id, 'n', 'h', string.format(":call win_gotoid(%d)<CR>", open_win_id),
-    { noremap = true, silent = true })
-
-  -- Função auxiliar para lidar com a seleção de issues
-  function M._handle_issue_selection(buf_id, issues_data)
-    local current_line = vim.api.nvim_buf_get_lines(buf_id, vim.api.nvim_win_get_cursor(0)[1] - 1,
-      vim.api.nvim_win_get_cursor(0)[1], false)[1]
-    if not current_line then return end
-
-    local selected_issue = nil
-    for i, issue in ipairs(issues_data) do
-      if current_line:match(safe_tostring(issue.title)) then -- Simplificado para encontrar pelo título
-        selected_issue = issue
-        break
-      end
+  -- Adiciona cabeçalho de Open Issues
+  table.insert(lines, "=== 🟢 OPEN ISSUES ===")
+  current_line_idx = current_line_idx + 1
+  if #open_issues > 0 then
+    for _, issue in ipairs(open_issues) do
+      table.insert(lines, format_issue_line(issue))
+      current_line_idx = current_line_idx + 1
+      issue_map[current_line_idx] = issue
     end
+  else
+    table.insert(lines, "  (Nenhuma issue aberta)")
+    current_line_idx = current_line_idx + 1
+  end
+  table.insert(lines, "") -- Linha em branco para separação
+  current_line_idx = current_line_idx + 1
 
-    if selected_issue then
-      M.show_issue_details(selected_issue)
+  -- Adiciona cabeçalho de Closed Issues
+  table.insert(lines, "=== 🔴 CLOSED ISSUES ===")
+  current_line_idx = current_line_idx + 1
+  if #closed_issues > 0 then
+    for _, issue in ipairs(closed_issues) do
+      table.insert(lines, format_issue_line(issue))
+      current_line_idx = current_line_idx + 1
+      issue_map[current_line_idx] = issue
     end
+  else
+    table.insert(lines, "  (Nenhuma issue fechada)")
+    current_line_idx = current_line_idx + 1
   end
 
-  -- Foca na primeira janela
-  vim.api.nvim_set_current_win(open_win_id)
+  local win_id, buf_id = create_floating_window({
+    title = "Issues para: " .. project_title,
+    width = popup_width,
+    height = math.min(popup_height, #lines + 4), -- Ajusta altura se houver poucas linhas
+  })
+  GitHubProjectsUI.current_win_id = win_id
+  GitHubProjectsUI.current_buf_id = buf_id
+  GitHubProjectsUI.current_issues_data = issue_map -- Armazena o mapa de issues
+
+  vim.api.nvim_buf_set_lines(buf_id, 0, -1, false, lines)
+
+  -- Keymap para selecionar issue
+  vim.api.nvim_buf_set_keymap(buf_id, 'n', '<CR>',
+    ":lua require('github-projects.ui')._handle_issue_selection_from_kanban()<CR>",
+    { noremap = true, silent = true })
+
+  -- Foca na janela
+  vim.api.nvim_set_current_win(win_id)
+end
+
+-- Função auxiliar para lidar com a seleção de issues no Kanban
+function M._handle_issue_selection_from_kanban()
+  local current_win = vim.api.nvim_get_current_win()
+  local current_buf = vim.api.nvim_win_get_buf(current_win)
+
+  if current_buf ~= GitHubProjectsUI.current_buf_id then
+    vim.notify("Erro: Buffer de Kanban não corresponde.", vim.log.levels.ERROR)
+    return
+  end
+
+  local cursor_line = vim.api.nvim_win_get_cursor(current_win)[1] -- Linha base 1
+  local selected_issue = GitHubProjectsUI.current_issues_data[cursor_line]
+
+  if selected_issue then
+    M.show_issue_details(selected_issue)
+  else
+    vim.notify("Nenhuma issue selecionada nesta linha.", vim.log.levels.WARN)
+  end
 end
 
 -- Função para exibir detalhes de uma issue (usando janela flutuante simples)
@@ -274,6 +275,7 @@ function M.show_issue_details(issue)
     table.insert(lines, "Autor: " .. safe_tostring(issue.user.login))
   end
 
+  table.insert(lines, "")
   table.insert(lines, "URL: " .. safe_tostring(issue.html_url) or "N/A")
   table.insert(lines, "")
   table.insert(lines, "Descrição:")
@@ -283,6 +285,10 @@ function M.show_issue_details(issue)
   for _, line in ipairs(body_lines) do
     table.insert(lines, line)
   end
+
+  -- Adiciona instrução para abrir URL
+  table.insert(lines, "")
+  table.insert(lines, "Pressione 'o' para abrir no navegador.")
 
   local win_id, buf_id = create_floating_window({
     title = "Issue #" .. safe_tostring(issue.number),
