@@ -55,6 +55,17 @@ local function create_float_window(title, lines)
   return buf, win
 end
 
+-- Função helper para converter valores do Vim para strings seguras
+local function safe_tostring(value)
+  if value == nil or value == vim.NIL then
+    return nil
+  end
+  if type(value) == "string" then
+    return value
+  end
+  return tostring(value)
+end
+
 function M.show_projects(projects)
   if not projects or #projects == 0 then
     vim.notify("Nenhum projeto encontrado", vim.log.levels.WARN)
@@ -67,17 +78,26 @@ function M.show_projects(projects)
   }
 
   for i, project in ipairs(projects) do
-    table.insert(lines, string.format("%d. %s (#%s)", i, project.title or "Sem título", project.number or "N/A"))
+    local title = safe_tostring(project.title) or "Sem título"
+    local number = safe_tostring(project.number) or "N/A"
 
-    if project.shortDescription and project.shortDescription ~= "" then
-      table.insert(lines, "   " .. project.shortDescription)
+    table.insert(lines, string.format("%d. %s (#%s)", i, title, number))
+
+    -- Tratamento seguro para shortDescription
+    local short_desc = safe_tostring(project.shortDescription)
+    if short_desc and short_desc ~= "" then
+      table.insert(lines, "   " .. short_desc)
     end
 
-    table.insert(lines, "   URL: " .. (project.url or "N/A"))
-    table.insert(lines, "   ID: " .. (project.id or "N/A"))
+    local url = safe_tostring(project.url) or "N/A"
+    table.insert(lines, "   URL: " .. url)
 
-    if project.updatedAt then
-      table.insert(lines, "   Atualizado: " .. project.updatedAt)
+    local id = safe_tostring(project.id) or "N/A"
+    table.insert(lines, "   ID: " .. id)
+
+    local updated_at = safe_tostring(project.updatedAt)
+    if updated_at then
+      table.insert(lines, "   Atualizado: " .. updated_at)
     end
 
     table.insert(lines, "")
@@ -104,25 +124,43 @@ function M.show_issues(issues)
 
   for i, issue in ipairs(issues) do
     local state_icon = issue.state == "open" and "🟢" or "🔴"
-    table.insert(lines, string.format("%s #%d: %s", state_icon, issue.number, issue.title))
+    local number = safe_tostring(issue.number) or "N/A"
+    local title = safe_tostring(issue.title) or "Sem título"
+
+    table.insert(lines, string.format("%s #%s: %s", state_icon, number, title))
 
     if issue.labels and #issue.labels > 0 then
       local labels = {}
       for _, label in ipairs(issue.labels) do
-        table.insert(labels, label.name)
+        local label_name = safe_tostring(label.name)
+        if label_name then
+          table.insert(labels, label_name)
+        end
       end
-      table.insert(lines, "   Labels: " .. table.concat(labels, ", "))
+      if #labels > 0 then
+        table.insert(lines, "   Labels: " .. table.concat(labels, ", "))
+      end
     end
 
-    if issue.assignee then
-      table.insert(lines, "   Assignee: " .. issue.assignee.login)
+    if issue.assignee and issue.assignee.login then
+      local assignee = safe_tostring(issue.assignee.login)
+      if assignee then
+        table.insert(lines, "   Assignee: " .. assignee)
+      end
     end
 
-    if issue.user then
-      table.insert(lines, "   Author: " .. issue.user.login)
+    if issue.user and issue.user.login then
+      local author = safe_tostring(issue.user.login)
+      if author then
+        table.insert(lines, "   Author: " .. author)
+      end
     end
 
-    table.insert(lines, "   URL: " .. issue.html_url)
+    local html_url = safe_tostring(issue.html_url)
+    if html_url then
+      table.insert(lines, "   URL: " .. html_url)
+    end
+
     table.insert(lines, "")
   end
 
@@ -143,7 +181,10 @@ function M.create_issue_form(callback)
 
     local repo_names = {}
     for _, repo in ipairs(repos) do
-      table.insert(repo_names, repo.name)
+      local repo_name = safe_tostring(repo.name)
+      if repo_name then
+        table.insert(repo_names, repo_name)
+      end
     end
 
     vim.ui.select(repo_names, {
@@ -187,19 +228,31 @@ function M.show_repositories(repos)
   }
 
   for i, repo in ipairs(repos) do
-    table.insert(lines, string.format("%d. %s", i, repo.name))
+    local repo_name = safe_tostring(repo.name) or "Sem nome"
+    table.insert(lines, string.format("%d. %s", i, repo_name))
 
-    if repo.description and repo.description ~= "" then
-      table.insert(lines, "   " .. repo.description)
+    local description = safe_tostring(repo.description)
+    if description and description ~= "" then
+      table.insert(lines, "   " .. description)
     end
 
-    table.insert(lines, "   Language: " .. (repo.language or "N/A"))
-    table.insert(lines, "   Stars: " .. (repo.stargazers_count or 0))
-    table.insert(lines, "   Private: " .. (repo.private and "Sim" or "Não"))
-    table.insert(lines, "   URL: " .. repo.html_url)
+    local language = safe_tostring(repo.language) or "N/A"
+    table.insert(lines, "   Language: " .. language)
 
-    if repo.updated_at then
-      table.insert(lines, "   Atualizado: " .. repo.updated_at)
+    local stars = safe_tostring(repo.stargazers_count) or "0"
+    table.insert(lines, "   Stars: " .. stars)
+
+    local private_str = repo.private and "Sim" or "Não"
+    table.insert(lines, "   Private: " .. private_str)
+
+    local html_url = safe_tostring(repo.html_url)
+    if html_url then
+      table.insert(lines, "   URL: " .. html_url)
+    end
+
+    local updated_at = safe_tostring(repo.updated_at)
+    if updated_at then
+      table.insert(lines, "   Atualizado: " .. updated_at)
     end
 
     table.insert(lines, "")
