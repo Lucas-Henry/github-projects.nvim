@@ -2,44 +2,31 @@ local M = {}
 local config = require('github-projects.config')
 local api = require('github-projects.api')
 
--- Tentar carregar a UI baseada em nui.nvim, com fallback para a UI nativa
-local ui_module_name = "github-projects.ui" -- Padrão para a UI nativa
+local ui_module_name = "github-projects.ui"
 local nui_loaded_successfully = false
 
--- Tenta carregar um módulo central do nui.nvim para verificar sua disponibilidade
--- Usamos 'nui.popup' pois é um componente comum e se ele carregar, o nui.nvim está funcional.
+-- Try to load nui.nvim and fallback to native UI
 local ok, nui_test_module = pcall(require, 'nui.popup')
 if ok then
-  -- Se nui.nvim pode ser requerido, tenta carregar nossa UI baseada em nui
   local ui_nui_ok, ui_nui_module = pcall(require, 'github-projects.ui_nui')
   if ui_nui_ok then
     ui_module_name = "github-projects.ui_nui"
     nui_loaded_successfully = true
-    vim.notify("DEBUG: Usando nui.nvim UI", vim.log.levels.INFO)
-  else
-    vim.notify("DEBUG: Falha ao carregar github-projects.ui_nui, usando UI nativa. Erro: " .. tostring(ui_nui_module),
-      vim.log.levels.WARN)
   end
-else
-  vim.notify("DEBUG: nui.nvim não encontrado ou com erro, usando UI nativa. Erro: " .. tostring(nui_test_module),
-    vim.log.levels.WARN)
 end
 
-local ui = require(ui_module_name) -- Agora carrega o módulo de UI escolhido
+local ui = require(ui_module_name)
 
 function M.setup(opts)
-  vim.notify("DEBUG: init.lua M.setup started", vim.log.levels.INFO)
   config.setup(opts or {})
 
   if not config.validate() then
-    vim.notify("GitHub Projects: Configuração inválida. Verifique o arquivo de configuração.", vim.log.levels.ERROR)
+    vim.notify("GitHub Projects: Invalid configuration. Check config file.", vim.log.levels.ERROR)
     return
   end
 
-  -- Chamadas de setup de comandos e keymaps devem vir aqui no final
   M.setup_commands()
   M.setup_keymaps()
-  vim.notify("DEBUG: init.lua M.setup finished", vim.log.levels.INFO)
 end
 
 function M.load_projects()
@@ -47,7 +34,7 @@ function M.load_projects()
     if projects then
       ui.show_projects(projects)
     else
-      vim.notify("Erro ao carregar projetos", vim.log.levels.ERROR)
+      vim.notify("Error loading projects", vim.log.levels.ERROR)
     end
   end)
 end
@@ -57,7 +44,7 @@ function M.load_issues(repo)
     if issues then
       ui.show_issues_kanban(issues, repo or "Organization Issues")
     else
-      vim.notify("Erro ao carregar issues", vim.log.levels.ERROR)
+      vim.notify("Error loading issues", vim.log.levels.ERROR)
     end
   end)
 end
@@ -67,7 +54,7 @@ function M.load_repositories()
     if repos then
       ui.show_repositories(repos)
     else
-      vim.notify("Erro ao carregar repositórios", vim.log.levels.ERROR)
+      vim.notify("Error loading repositories", vim.log.levels.ERROR)
     end
   end)
 end
@@ -76,9 +63,9 @@ function M.create_issue()
   ui.create_issue_form(function(issue_data)
     api.create_issue(issue_data, function(success)
       if success then
-        vim.notify("Issue criada com sucesso!", vim.log.levels.INFO)
+        vim.notify("Issue created successfully!", vim.log.levels.INFO)
       else
-        vim.notify("Erro ao criar issue", vim.log.levels.ERROR)
+        vim.notify("Error creating issue", vim.log.levels.ERROR)
       end
     end)
   end)
@@ -97,7 +84,7 @@ function M.test_connection()
     if success then
       vim.notify("✅ " .. message, vim.log.levels.INFO)
     else
-      vim.notify("❌ Erro de conexão: " .. message, vim.log.levels.ERROR)
+      vim.notify("❌ Connection error: " .. message, vim.log.levels.ERROR)
     end
   end)
 end
