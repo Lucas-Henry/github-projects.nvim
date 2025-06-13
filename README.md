@@ -44,7 +44,15 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
     require('github-projects').setup({
       -- your configuration here
     })
-  end
+  end,
+
+ keys = {
+      { "<leader>gp", "<cmd>GitHubProjects<cr>",    desc = "GitHub Projects" },
+      { "<leader>gi", "<cmd>GitHubIssues<cr>",      desc = "GitHub Issues" },
+      { "<leader>gc", "<cmd>GitHubCreateIssue<cr>", desc = "Create GitHub Issue" },
+      { "<leader>gr", "<cmd>GitHubRepos<cr>",       desc = "GitHub Repositories" },
+    },
+    cmd = { "GitHubProjects", "GitHubIssues", "GitHubCreateIssue", "GitHubRepos" }
 }
 ```
 
@@ -52,12 +60,21 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 
 ```lua
 require('github-projects').setup({
+  config_file = vim.fn.expand("~/.config/gh_access.conf"),
+
+  keymaps = {
+    projects = "<leader>gp",
+    issues = "<leader>gi",
+    create_issue = "<leader>gc"
+  },
+
   ui = {
     width = 120,      -- Width of the popup windows
     height = 30,      -- Height of the popup windows
     border = "single" -- Border style: "none", "single", "double", "rounded", "solid", "shadow"
   }
 })
+
 ```
 
 ## Create a config file
