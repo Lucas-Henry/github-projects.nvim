@@ -1,4 +1,4 @@
-# GitHub Projects.nvim
+# GitHub Projects Plugin
 
 A Neovim plugin for managing GitHub Projects with a visual Kanban board interface.
 
