@@ -80,7 +80,7 @@ require('github-projects').setup({
 ## Create a config file
 
 ```bash
-nano ~/.config/gh_access.conf
+nvim ~/.config/gh_access.conf
 ```
 
 Lay down your Github Personal Access Token & your Organization name
