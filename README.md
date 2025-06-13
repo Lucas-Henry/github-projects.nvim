@@ -4,11 +4,11 @@ A Neovim plugin for managing GitHub Projects with a visual Kanban board interfac
 
 ## Features
 
-- 📋 Visual Kanban board for GitHub Projects v2
-- 🔄 Dynamic status columns based on your GitHub Projects configuration
-- 🔍 View issue details with syntax highlighting
-- 🌐 Open issues in browser with a single keystroke
-- ⌨️ Full keyboard navigation
+- Visual Kanban board for GitHub Projects v2
+- Dynamic status columns based on your GitHub Projects configuration
+- View issue details with syntax highlighting
+- Open issues in browser with a single keystroke
+- Full keyboard navigation
 
 ## Requirements
 
