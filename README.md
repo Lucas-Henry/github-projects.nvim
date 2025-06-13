@@ -106,4 +106,4 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-Non-profit - GNU license.
+GNU license.
