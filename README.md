@@ -10,6 +10,12 @@ A Neovim plugin for managing GitHub Projects with a visual Kanban board interfac
 - Open issues in browser with a single keystroke
 - Full keyboard navigation
 
+## Showcase
+
+![image](https://github.com/user-attachments/assets/03ba355a-2695-4e36-897d-e93d391de8b5)
+![image](https://github.com/user-attachments/assets/17c20e65-09c5-438e-98b4-a5b820822c2a)
+
+
 ## Requirements
 
 - Neovim >= 0.7.0
