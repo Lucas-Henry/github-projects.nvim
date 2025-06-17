@@ -1,6 +1,23 @@
 # GitHub Projects Plugin
 A Neovim plugin for managing GitHub Projects with a visual Kanban board interface.
 
+## Table of Contents
+- [Features](#features)
+- [Showcase](#showcase)
+- [Requirements](#requirements)
+- [Installation](#installation)
+  - [Using packer.nvim](#using-packernvim)
+  - [Using lazy.nvim](#using-lazynvim)
+- [Setup](#setup)
+  - [Create a config file](#create-a-config-file)
+- [Configuration Options](#configuration-options)
+- [Usage](#usage)
+- [Keyboard Shortcuts](#keyboard-shortcuts)
+  - [Kanban Board View](#kanban-board-view)
+  - [Issue Detail View](#issue-detail-view)
+- [Contributing](#contributing)
+- [License](#license)
+
 ## Features
 - Visual Kanban board for GitHub Projects v2
 - Dynamic status columns based on your GitHub Projects configuration
