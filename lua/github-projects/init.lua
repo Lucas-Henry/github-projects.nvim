@@ -4,6 +4,7 @@ local api = require('github-projects.api')
 local ui = require('github-projects.ui_nui')
 local ui_enhanced = require('github-projects.ui_enhanced')
 local pull_requests = require('github-projects.pull_requests')
+local cache = require('github-projects.cache')
 
 -- Setup highlights for markdown rendering
 local function setup_markdown_highlights()
@@ -69,6 +70,11 @@ function M.setup(opts)
     M.test_connection()
   end, { desc = 'Test GitHub API connection' })
 
+  vim.api.nvim_create_user_command('GitHubProjectsClearCache', function()
+    cache.clear()
+    vim.notify("Cache cleared!", vim.log.levels.INFO)
+  end, { desc = 'Clear GitHub Projects cache' })
+
   -- Setup keymaps if configured
   local keymaps = config.get_keymaps()
   if keymaps then
@@ -100,6 +106,8 @@ function M.create_issue_enhanced()
       api.create_issue(issue_data, function(success)
         if success then
           vim.notify("Issue created successfully!", vim.log.levels.INFO)
+          -- Clear cache to refresh data
+          cache.clear_key("issues")
 
           -- If issue was created with project context, add it to the project
           if issue_data.project and issue_data.status then
@@ -115,101 +123,145 @@ end
 
 -- Show pull requests
 function M.show_pull_requests()
+  -- Check cache first
+  local cached_repos = cache.get("repositories")
+
+  if cached_repos then
+    M._show_pr_selection(cached_repos)
+    return
+  end
+
   api.get_repositories(function(repos)
     if not repos or #repos == 0 then
       vim.notify("No repositories found", vim.log.levels.ERROR)
       return
     end
 
-    local repo_names = {}
-    for _, repo in ipairs(repos) do
-      table.insert(repo_names, repo.name)
+    -- Cache repositories
+    cache.set(repos, "repositories")
+    M._show_pr_selection(repos)
+  end)
+end
+
+function M._show_pr_selection(repos)
+  local repo_names = {}
+  for _, repo in ipairs(repos) do
+    table.insert(repo_names, repo.name)
+  end
+
+  vim.ui.select(repo_names, {
+    prompt = "Select Repository for PRs:",
+    format_item = function(item) return item end,
+  }, function(selected_repo)
+    if not selected_repo then
+      return
     end
 
-    vim.ui.select(repo_names, {
-      prompt = "Select Repository for PRs:",
-      format_item = function(item) return item end,
-    }, function(selected_repo)
-      if not selected_repo then
+    -- Check cache for PRs
+    local cached_prs = cache.get("prs", selected_repo)
+
+    if cached_prs then
+      M._show_pr_list(cached_prs, selected_repo)
+      return
+    end
+
+    vim.notify("Loading pull requests...", vim.log.levels.INFO)
+    pull_requests.get_pull_requests(selected_repo, function(prs)
+      if not prs or #prs == 0 then
+        vim.notify("No pull requests found", vim.log.levels.WARN)
         return
       end
 
-      pull_requests.get_pull_requests(selected_repo, function(prs)
-        if not prs or #prs == 0 then
-          vim.notify("No pull requests found", vim.log.levels.WARN)
-          return
-        end
-
-        local pr_items = {}
-        for _, pr in ipairs(prs) do
-          table.insert(pr_items, {
-            title = string.format("#%d: %s [%s]", pr.number, pr.title, pr.state),
-            value = pr
-          })
-        end
-
-        vim.ui.select(pr_items, {
-          prompt = "Select Pull Request:",
-          format_item = function(item) return item.title end,
-        }, function(selected_pr_item)
-          if selected_pr_item and selected_pr_item.value then
-            pull_requests.show_pull_request_fullscreen(selected_pr_item.value, selected_repo)
-          end
-        end)
-      end)
+      -- Cache PRs
+      cache.set(prs, "prs", selected_repo)
+      M._show_pr_list(prs, selected_repo)
     end)
   end)
 end
 
+function M._show_pr_list(prs, selected_repo)
+  local pr_items = {}
+  for _, pr in ipairs(prs) do
+    table.insert(pr_items, {
+      title = string.format("#%d: %s [%s]", pr.number, pr.title, pr.state),
+      value = pr
+    })
+  end
+
+  vim.ui.select(pr_items, {
+    prompt = "Select Pull Request:",
+    format_item = function(item) return item.title end,
+  }, function(selected_pr_item)
+    if selected_pr_item and selected_pr_item.value then
+      pull_requests.show_pull_request_fullscreen(selected_pr_item.value, selected_repo)
+    end
+  end)
+end
+
 function M.create_pull_request()
+  -- Check cache first
+  local cached_repos = cache.get("repositories")
+
+  if cached_repos then
+    M._create_pr_with_repos(cached_repos)
+    return
+  end
+
   api.get_repositories(function(repos)
     if not repos or #repos == 0 then
       vim.notify("No repositories found", vim.log.levels.ERROR)
       return
     end
 
-    local repo_names = {}
-    for _, repo in ipairs(repos) do
-      table.insert(repo_names, repo.name)
+    cache.set(repos, "repositories")
+    M._create_pr_with_repos(repos)
+  end)
+end
+
+function M._create_pr_with_repos(repos)
+  local repo_names = {}
+  for _, repo in ipairs(repos) do
+    table.insert(repo_names, repo.name)
+  end
+
+  vim.ui.select(repo_names, {
+    prompt = "Select Repository for PR:",
+    format_item = function(item) return item end,
+  }, function(selected_repo)
+    if not selected_repo then
+      return
     end
 
-    vim.ui.select(repo_names, {
-      prompt = "Select Repository for PR:",
-      format_item = function(item) return item end,
-    }, function(selected_repo)
-      if not selected_repo then
+    vim.ui.input({ prompt = "PR Title: " }, function(pr_title)
+      if not pr_title or pr_title == "" then
+        vim.notify("Title is required", vim.log.levels.ERROR)
         return
       end
 
-      vim.ui.input({ prompt = "PR Title: " }, function(pr_title)
-        if not pr_title or pr_title == "" then
-          vim.notify("Title is required", vim.log.levels.ERROR)
+      vim.ui.input({ prompt = "Head Branch (source): " }, function(head_branch)
+        if not head_branch or head_branch == "" then
+          vim.notify("Head branch is required", vim.log.levels.ERROR)
           return
         end
 
-        vim.ui.input({ prompt = "Head Branch (source): " }, function(head_branch)
-          if not head_branch or head_branch == "" then
-            vim.notify("Head branch is required", vim.log.levels.ERROR)
-            return
-          end
+        vim.ui.input({ prompt = "Base Branch (target, default: main): " }, function(base_branch)
+          base_branch = base_branch and base_branch ~= "" and base_branch or "main"
 
-          vim.ui.input({ prompt = "Base Branch (target, default: main): " }, function(base_branch)
-            base_branch = base_branch and base_branch ~= "" and base_branch or "main"
-
-            vim.ui.input({ prompt = "PR Description (optional): " }, function(pr_body)
-              pull_requests.create_pull_request({
-                repo = selected_repo,
-                title = pr_title,
-                body = pr_body or "",
-                head_branch = head_branch,
-                base_branch = base_branch
-              }, function(success)
-                if success then
-                  vim.notify("Pull request created successfully!", vim.log.levels.INFO)
-                else
-                  vim.notify("Failed to create pull request", vim.log.levels.ERROR)
-                end
-              end)
+          vim.ui.input({ prompt = "PR Description (optional): " }, function(pr_body)
+            pull_requests.create_pull_request({
+              repo = selected_repo,
+              title = pr_title,
+              body = pr_body or "",
+              head_branch = head_branch,
+              base_branch = base_branch
+            }, function(success)
+              if success then
+                vim.notify("Pull request created successfully!", vim.log.levels.INFO)
+                -- Clear PR cache to refresh data
+                cache.clear_key("prs", selected_repo)
+              else
+                vim.notify("Failed to create pull request", vim.log.levels.ERROR)
+              end
             end)
           end)
         end)
@@ -218,10 +270,20 @@ function M.create_pull_request()
   end)
 end
 
--- Rest of the original functions remain the same...
+-- Rest of the original functions with caching improvements...
 function M.show_projects()
+  -- Check cache first
+  local cached_projects = cache.get("projects")
+
+  if cached_projects then
+    ui.show_projects(cached_projects)
+    return
+  end
+
+  vim.notify("Loading projects...", vim.log.levels.INFO)
   api.get_projects(function(projects)
     if projects then
+      cache.set(projects, "projects")
       ui.show_projects(projects)
     else
       vim.notify("Failed to load projects", vim.log.levels.ERROR)
@@ -239,34 +301,59 @@ function M.show_issues(repo)
     return
   end
 
+  -- Check cache first
+  local cache_key = repo or "all"
+  local cached_issues = cache.get("issues", cache_key)
+
+  if cached_issues then
+    M._show_issues_kanban(cached_issues, repo)
+    return
+  end
+
+  vim.notify("Loading issues from GitHub...", vim.log.levels.INFO)
   api.get_issues(repo, function(issues)
     if issues then
-      -- Convert to kanban format for backward compatibility
-      local issues_by_status = {
-        ["Open"] = {},
-        ["Closed"] = {}
-      }
-
-      for _, issue in ipairs(issues) do
-        local status = issue.state == "open" and "Open" or "Closed"
-        table.insert(issues_by_status[status], issue)
-      end
-
-      local statuses = {
-        { name = "Open",   id = "open" },
-        { name = "Closed", id = "closed" }
-      }
-
-      ui.show_issues_kanban(statuses, issues_by_status, repo or "All Issues")
+      cache.set(issues, "issues", cache_key)
+      M._show_issues_kanban(issues, repo)
     else
       vim.notify("Failed to load issues. Check your GitHub configuration.", vim.log.levels.ERROR)
     end
   end)
 end
 
+function M._show_issues_kanban(issues, repo)
+  -- Convert to kanban format for backward compatibility
+  local issues_by_status = {
+    ["Open"] = {},
+    ["Closed"] = {}
+  }
+
+  for _, issue in ipairs(issues) do
+    local status = issue.state == "open" and "Open" or "Closed"
+    table.insert(issues_by_status[status], issue)
+  end
+
+  local statuses = {
+    { name = "Open",   id = "open" },
+    { name = "Closed", id = "closed" }
+  }
+
+  ui.show_issues_kanban(statuses, issues_by_status, repo or "All Issues")
+end
+
 function M.show_repositories()
+  -- Check cache first
+  local cached_repos = cache.get("repositories")
+
+  if cached_repos then
+    ui.show_repositories(cached_repos)
+    return
+  end
+
+  vim.notify("Loading repositories...", vim.log.levels.INFO)
   api.get_repositories(function(repos)
     if repos then
+      cache.set(repos, "repositories")
       ui.show_repositories(repos)
     else
       vim.notify("Failed to load repositories", vim.log.levels.ERROR)
@@ -280,6 +367,7 @@ function M.create_issue()
       api.create_issue(issue_data, function(success)
         if success then
           vim.notify("Issue created successfully!", vim.log.levels.INFO)
+          cache.clear_key("issues")
         else
           vim.notify("Failed to create issue", vim.log.levels.ERROR)
         end
