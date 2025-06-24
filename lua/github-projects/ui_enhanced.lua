@@ -7,6 +7,17 @@ local popup = require('nui.popup')
 local layout = require('nui.layout')
 local text = require('nui.text')
 
+-- Helper for safe string conversion (moved from ui_nui.lua)
+local function safe_str(value)
+  if value == nil or value == vim.NIL then
+    return ""
+  end
+  if type(value) == "string" then
+    return value
+  end
+  return tostring(value)
+end
+
 -- Markdown renderer (basic implementation)
 local function render_markdown_line(line)
   -- Basic markdown parsing
@@ -87,6 +98,7 @@ end
 -- Enhanced issue creation with project board selection
 function M.create_issue_with_project_selection(callback)
   -- First get all projects
+  vim.notify("Loading projects...", vim.log.levels.INFO)
   api.get_projects(function(projects)
     if not projects or #projects == 0 then
       -- Fallback to regular issue creation
@@ -98,7 +110,7 @@ function M.create_issue_with_project_selection(callback)
     local project_options = { { title = "No Project Board", value = nil } }
     for _, project in ipairs(projects) do
       table.insert(project_options, {
-        title = project.title .. " (#" .. project.number .. ")",
+        title = safe_str(project.title) .. " (#" .. safe_str(project.number) .. ")",
         value = project
       })
     end
@@ -121,6 +133,7 @@ function M.create_issue_with_project_selection(callback)
       end
 
       -- Get project details to show status options
+      vim.notify("Loading project details...", vim.log.levels.INFO)
       api.get_project_details(selected_project.number, function(project_data)
         if not project_data then
           vim.notify("Error loading project details", vim.log.levels.ERROR)
@@ -130,9 +143,16 @@ function M.create_issue_with_project_selection(callback)
         local status_options = {}
         for _, status in ipairs(project_data.statuses) do
           table.insert(status_options, {
-            title = status.name,
+            title = safe_str(status.name),
             value = status
           })
+        end
+
+        if #status_options == 0 then
+          vim.notify("No status columns found in project", vim.log.levels.WARN)
+          -- Fallback to regular issue creation
+          require('github-projects.ui_nui').create_issue_form(callback)
+          return
         end
 
         vim.ui.select(status_options, {
@@ -153,6 +173,7 @@ function M.create_issue_with_project_selection(callback)
 end
 
 function M._create_issue_form_with_context(project, status, callback)
+  vim.notify("Loading repositories...", vim.log.levels.INFO)
   api.get_repositories(function(repos)
     if not repos or #repos == 0 then
       vim.notify("No repositories found", vim.log.levels.ERROR)

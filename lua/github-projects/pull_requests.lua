@@ -3,117 +3,41 @@ local config = require('github-projects.config')
 local api = require('github-projects.api')
 local popup = require('nui.popup')
 
+-- Helper for safe string conversion
+local function safe_str(value)
+  if value == nil or value == vim.NIL then
+    return ""
+  end
+  if type(value) == "string" then
+    return value
+  end
+  return tostring(value)
+end
+
 -- Get pull requests for a repository
 function M.get_pull_requests(repo, callback)
-  local org = config.get_org()
-  local token = config.get_token()
-
-  if not org or not token then
-    callback(nil)
-    return
-  end
-
-  local url = string.format("https://api.github.com/repos/%s/%s/pulls?state=all&per_page=50", org, repo)
-
-  local headers = {
-    "Authorization: Bearer " .. token,
-    "Accept: application/vnd.github+json",
-    "X-GitHub-Api-Version: 2022-11-28",
-    "User-Agent: github-projects-nvim"
-  }
-
-  require('github-projects.api').curl_request(url, headers, nil, function(data, error)
-    if error then
-      vim.notify("Error loading pull requests: " .. error, vim.log.levels.ERROR)
-      callback(nil)
-      return
-    end
-
-    callback(data or {})
-  end)
+  api.get_pull_requests(repo, callback)
 end
 
 -- Create a new pull request
 function M.create_pull_request(pr_data, callback)
-  local org = config.get_org()
-  local token = config.get_token()
-
-  if not org or not token or not pr_data.repo then
-    callback(false)
-    return
-  end
-
-  local url = string.format("https://api.github.com/repos/%s/%s/pulls", org, pr_data.repo)
-
-  local json_body = vim.json.encode({
-    title = pr_data.title,
-    body = pr_data.body or "",
-    head = pr_data.head_branch,
-    base = pr_data.base_branch
-  })
-
-  local headers = {
-    "Authorization: Bearer " .. token,
-    "Accept: application/vnd.github+json",
-    "Content-Type: application/json",
-    "X-GitHub-Api-Version: 2022-11-28",
-    "User-Agent: github-projects-nvim"
-  }
-
-  require('github-projects.api').curl_request(url, headers, json_body, function(result, error)
-    if error then
-      vim.notify("Error creating pull request: " .. error, vim.log.levels.ERROR)
-      callback(false)
-      return
-    end
-    callback(result ~= nil)
-  end)
+  api.create_pull_request(pr_data, callback)
 end
 
 -- Review a pull request (approve/reject)
 function M.review_pull_request(repo, pr_number, review_data, callback)
-  local org = config.get_org()
-  local token = config.get_token()
-
-  if not org or not token or not repo or not pr_number then
-    callback(false)
-    return
-  end
-
-  local url = string.format("https://api.github.com/repos/%s/%s/pulls/%d/reviews", org, repo, pr_number)
-
-  local json_body = vim.json.encode({
-    body = review_data.body or "",
-    event = review_data.event -- "APPROVE", "REQUEST_CHANGES", "COMMENT"
-  })
-
-  local headers = {
-    "Authorization: Bearer " .. token,
-    "Accept: application/vnd.github+json",
-    "Content-Type: application/json",
-    "X-GitHub-Api-Version: 2022-11-28",
-    "User-Agent: github-projects-nvim"
-  }
-
-  require('github-projects.api').curl_request(url, headers, json_body, function(result, error)
-    if error then
-      vim.notify("Error reviewing pull request: " .. error, vim.log.levels.ERROR)
-      callback(false)
-      return
-    end
-    callback(result ~= nil)
-  end)
+  api.review_pull_request(repo, pr_number, review_data, callback)
 end
 
 -- Show pull request with fullscreen interface and diff view
 function M.show_pull_request_fullscreen(pr, repo)
   local pr_popup = popup({
     position = "50%",
-    size = "100%",
+    size = "95%",
     border = {
       style = "rounded",
       text = {
-        top = "PR #" .. tostring(pr.number) .. ": " .. (pr.title or ""),
+        top = "PR #" .. safe_str(pr.number) .. ": " .. safe_str(pr.title),
         top_align = "center",
       },
     },
@@ -123,28 +47,42 @@ function M.show_pull_request_fullscreen(pr, repo)
     buf_options = {
       modifiable = true,
     },
+    enter = true,
   })
 
   pr_popup:mount()
 
+  -- Show loading message
+  local bufnr = pr_popup.bufnr
+  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "Loading PR diff..." })
+
   -- Get PR diff
-  M.get_pull_request_diff(repo, pr.number, function(diff_content)
-    local bufnr = pr_popup.bufnr
+  api.get_pull_request_diff(repo, pr.number, function(diff_content)
     local lines = {}
 
     -- Add PR info
-    table.insert(lines, "Title: " .. (pr.title or ""))
-    table.insert(lines, "Author: " .. (pr.user and pr.user.login or "Unknown"))
-    table.insert(lines, "State: " .. (pr.state or ""))
-    table.insert(lines, "Base: " .. (pr.base and pr.base.ref or ""))
-    table.insert(lines, "Head: " .. (pr.head and pr.head.ref or ""))
+    table.insert(lines, "╭─ Pull Request Information " .. string.rep("─", 50) .. "╮")
+    table.insert(lines, "│ Title: " .. safe_str(pr.title))
+    table.insert(lines, "│ Author: " .. safe_str(pr.user and pr.user.login or "Unknown"))
+    table.insert(lines, "│ State: " .. safe_str(pr.state))
+    table.insert(lines, "│ Base: " .. safe_str(pr.base and pr.base.ref or "Unknown"))
+    table.insert(lines, "│ Head: " .. safe_str(pr.head and pr.head.ref or "Unknown"))
+    table.insert(lines, "╰" .. string.rep("─", 70) .. "╯")
     table.insert(lines, "")
-    table.insert(lines, "Description:")
-    table.insert(lines, pr.body or "No description")
-    table.insert(lines, "")
-    table.insert(lines, "--- DIFF ---")
 
-    if diff_content then
+    if pr.body and pr.body ~= "" then
+      table.insert(lines, "╭─ Description " .. string.rep("─", 55) .. "╮")
+      local desc_lines = vim.split(safe_str(pr.body), "\n")
+      for _, line in ipairs(desc_lines) do
+        table.insert(lines, "│ " .. line)
+      end
+      table.insert(lines, "╰" .. string.rep("─", 70) .. "╯")
+      table.insert(lines, "")
+    end
+
+    table.insert(lines, "╭─ Diff " .. string.rep("─", 62) .. "╮")
+
+    if diff_content and diff_content ~= "" then
       local diff_lines = vim.split(diff_content, "\n")
       for _, line in ipairs(diff_lines) do
         table.insert(lines, line)
@@ -153,10 +91,33 @@ function M.show_pull_request_fullscreen(pr, repo)
       table.insert(lines, "Unable to load diff")
     end
 
+    table.insert(lines, "")
+    table.insert(lines, "╭─ Actions " .. string.rep("─", 59) .. "╮")
+    table.insert(lines, "│ Press 'a' to approve this PR")
+    table.insert(lines, "│ Press 'r' to request changes")
+    table.insert(lines, "│ Press 'q' to close")
+    table.insert(lines, "╰" .. string.rep("─", 70) .. "╯")
+
     vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
     vim.api.nvim_buf_set_option(bufnr, 'modifiable', false)
     vim.api.nvim_buf_set_option(bufnr, 'readonly', true)
     vim.api.nvim_buf_set_option(bufnr, 'filetype', 'diff')
+
+    -- Apply syntax highlighting
+    local ns_id = vim.api.nvim_create_namespace("GitHubProjectsPR")
+
+    -- Highlight headers and diff content
+    for i, line in ipairs(lines) do
+      if line:match("^╭─") or line:match("^╰") or line:match("^│") then
+        vim.api.nvim_buf_add_highlight(bufnr, ns_id, "GitHubProjectsBorder", i - 1, 0, -1)
+      elseif line:match("^@@") then
+        vim.api.nvim_buf_add_highlight(bufnr, ns_id, "DiffText", i - 1, 0, -1)
+      elseif line:match("^%+") then
+        vim.api.nvim_buf_add_highlight(bufnr, ns_id, "DiffAdd", i - 1, 0, -1)
+      elseif line:match("^%-") then
+        vim.api.nvim_buf_add_highlight(bufnr, ns_id, "DiffDelete", i - 1, 0, -1)
+      end
+    end
 
     -- Keymaps for PR actions
     vim.api.nvim_buf_set_keymap(bufnr, 'n', 'a',
@@ -170,39 +131,13 @@ function M.show_pull_request_fullscreen(pr, repo)
     vim.api.nvim_buf_set_keymap(bufnr, 'n', 'q',
       ":close<CR>",
       { noremap = true, silent = true })
+
+    vim.api.nvim_buf_set_keymap(bufnr, 'n', '<Esc>',
+      ":close<CR>",
+      { noremap = true, silent = true })
   end)
 
   return pr_popup
-end
-
--- Get pull request diff
-function M.get_pull_request_diff(repo, pr_number, callback)
-  local org = config.get_org()
-  local token = config.get_token()
-
-  if not org or not token then
-    callback(nil)
-    return
-  end
-
-  local url = string.format("https://api.github.com/repos/%s/%s/pulls/%d", org, repo, pr_number)
-
-  local headers = {
-    "Authorization: Bearer " .. token,
-    "Accept: application/vnd.github.v3.diff",
-    "X-GitHub-Api-Version: 2022-11-28",
-    "User-Agent: github-projects-nvim"
-  }
-
-  require('github-projects.api').curl_request(url, headers, nil, function(data, error)
-    if error then
-      vim.notify("Error loading PR diff: " .. error, vim.log.levels.ERROR)
-      callback(nil)
-      return
-    end
-
-    callback(data)
-  end)
 end
 
 -- Helper functions for PR actions
