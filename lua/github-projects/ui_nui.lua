@@ -143,7 +143,7 @@ function M.show_projects(projects)
       if item and item.value then
         local project = item.value
         vim.notify("Loading project: " .. project.title, vim.log.levels.INFO)
-        
+
         api.get_project_details(project.number, function(project_data)
           if project_data then
             GitHubProjectsNuiUI.current_project = project_data.project
@@ -159,6 +159,10 @@ function M.show_projects(projects)
   GitHubProjectsNuiUI.current_menu:mount()
 end
 
+-- Add horizontal scrolling support for compressed layouts
+GitHubProjectsNuiUI.horizontal_offset = 0
+GitHubProjectsNuiUI.visible_columns = 0
+
 -- Show issues in a visual Kanban board
 function M.show_issues_kanban(statuses, issues_by_status, project_title)
   if not statuses or #statuses == 0 then
@@ -166,11 +170,14 @@ function M.show_issues_kanban(statuses, issues_by_status, project_title)
     return
   end
 
+  -- Fix: Add null check for project_title
+  project_title = project_title or "Unknown Project"
+
   GitHubProjectsNuiUI.close_current_popup()
-  
+
   GitHubProjectsNuiUI.columns = statuses
   GitHubProjectsNuiUI.issues_by_column = {}
-  
+
   for i, status in ipairs(statuses) do
     local status_name = status.name
     GitHubProjectsNuiUI.issues_by_column[i] = issues_by_status[status_name] or {}
@@ -204,48 +211,48 @@ function M.show_issues_kanban(statuses, issues_by_status, project_title)
   })
 
   GitHubProjectsNuiUI.current_popup:mount()
-  
+
   M.render_kanban_view()
-  
+
   local bufnr = GitHubProjectsNuiUI.current_popup.bufnr
   vim.api.nvim_buf_set_option(bufnr, 'modifiable', false)
   vim.api.nvim_buf_set_option(bufnr, 'readonly', true)
-  
+
   vim.api.nvim_set_current_win(GitHubProjectsNuiUI.current_popup.winid)
 
-  vim.api.nvim_buf_set_keymap(bufnr, 'n', 'j', 
-    ":lua require('github-projects.ui_nui')._move_selection('down')<CR>", 
+  vim.api.nvim_buf_set_keymap(bufnr, 'n', 'j',
+    ":lua require('github-projects.ui_nui')._move_selection('down')<CR>",
     { noremap = true, silent = true })
-  
-  vim.api.nvim_buf_set_keymap(bufnr, 'n', 'k', 
-    ":lua require('github-projects.ui_nui')._move_selection('up')<CR>", 
+
+  vim.api.nvim_buf_set_keymap(bufnr, 'n', 'k',
+    ":lua require('github-projects.ui_nui')._move_selection('up')<CR>",
     { noremap = true, silent = true })
-  
-  vim.api.nvim_buf_set_keymap(bufnr, 'n', 'h', 
-    ":lua require('github-projects.ui_nui')._move_selection('left')<CR>", 
+
+  vim.api.nvim_buf_set_keymap(bufnr, 'n', 'h',
+    ":lua require('github-projects.ui_nui')._move_selection('left')<CR>",
     { noremap = true, silent = true })
-  
-  vim.api.nvim_buf_set_keymap(bufnr, 'n', 'l', 
-    ":lua require('github-projects.ui_nui')._move_selection('right')<CR>", 
+
+  vim.api.nvim_buf_set_keymap(bufnr, 'n', 'l',
+    ":lua require('github-projects.ui_nui')._move_selection('right')<CR>",
     { noremap = true, silent = true })
-  
-  vim.api.nvim_buf_set_keymap(bufnr, 'n', '<CR>', 
-    ":lua require('github-projects.ui_nui')._select_current_issue()<CR>", 
+
+  vim.api.nvim_buf_set_keymap(bufnr, 'n', '<CR>',
+    ":lua require('github-projects.ui_nui')._select_current_issue()<CR>",
     { noremap = true, silent = true })
-  
-  vim.api.nvim_buf_set_keymap(bufnr, 'n', 'q', 
-    ":lua require('github-projects.ui_nui').close_current_popup()<CR>", 
+
+  vim.api.nvim_buf_set_keymap(bufnr, 'n', 'q',
+    ":lua require('github-projects.ui_nui').close_current_popup()<CR>",
     { noremap = true, silent = true })
-  
-  vim.api.nvim_buf_set_keymap(bufnr, 'n', '<Esc>', 
-    ":lua require('github-projects.ui_nui').close_current_popup()<CR>", 
+
+  vim.api.nvim_buf_set_keymap(bufnr, 'n', '<Esc>',
+    ":lua require('github-projects.ui_nui').close_current_popup()<CR>",
     { noremap = true, silent = true })
 end
 
 -- Get status icon and color
 local function get_status_style(status_name)
   local name = status_name:lower()
-  
+
   if name == "open" or name == "todo" or name == "backlog" or name:match("to%s*do") then
     return "📋", "GitHubProjectsKanbanTodoItem"
   elseif name == "in progress" or name:match("progress") or name:match("doing") then
@@ -272,179 +279,195 @@ function M.render_kanban_view()
   local bufnr = GitHubProjectsNuiUI.current_popup.bufnr
   local popup_width = GitHubProjectsNuiUI.current_popup.win_config.width
   local popup_height = GitHubProjectsNuiUI.current_popup.win_config.height
-  
+
   vim.api.nvim_buf_set_option(bufnr, 'modifiable', true)
-  
+
   vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, {})
-  
+
   local columns = GitHubProjectsNuiUI.columns
   local issues_by_column = GitHubProjectsNuiUI.issues_by_column
-  
+
   local num_columns = #columns
-  local column_width = math.floor((popup_width - (num_columns + 1)) / num_columns)
-  
+
+  -- Calculate visible columns based on horizontal offset
+  local start_col = GitHubProjectsNuiUI.horizontal_offset + 1
+  local end_col = math.min(num_columns, start_col + GitHubProjectsNuiUI.visible_columns - 1)
+  local visible_col_count = end_col - start_col + 1
+
+  -- Use visible_col_count instead of num_columns for width calculations
+  local column_width = math.floor((popup_width - (visible_col_count + 1)) / visible_col_count)
+
   -- Draw header
   local header_line = "╭"
-  for i = 1, num_columns do
+  for i = 1, visible_col_count do
     header_line = header_line .. string.rep("─", column_width)
-    if i < num_columns then
+    if i < visible_col_count then
       header_line = header_line .. "┬"
     end
   end
   header_line = header_line .. "╮"
-  vim.api.nvim_buf_set_lines(bufnr, 0, 1, false, {header_line})
-  
+  vim.api.nvim_buf_set_lines(bufnr, 0, 1, false, { header_line })
+
   -- Draw column titles
   local title_line = "│"
-  for i, column in ipairs(columns) do
+  local col_index = 0
+  for i = start_col, end_col do
+    col_index = col_index + 1
+    local column = columns[i]
     local icon, _ = get_status_style(column.name)
     local title = icon .. " " .. column.name:upper()
     local padding = math.floor((column_width - vim.fn.strwidth(title)) / 2)
-    title_line = title_line .. string.rep(" ", padding) .. title .. 
-                string.rep(" ", column_width - padding - vim.fn.strwidth(title)) .. "│"
+    title_line = title_line .. string.rep(" ", padding) .. title ..
+        string.rep(" ", column_width - padding - vim.fn.strwidth(title)) .. "│"
   end
-  vim.api.nvim_buf_set_lines(bufnr, 1, 2, false, {title_line})
-  
+  vim.api.nvim_buf_set_lines(bufnr, 1, 2, false, { title_line })
+
   -- Draw separator below titles
   local separator_line = "├"
-  for i = 1, num_columns do
+  for i = 1, visible_col_count do
     separator_line = separator_line .. string.rep("─", column_width)
-    if i < num_columns then
+    if i < visible_col_count then
       separator_line = separator_line .. "┼"
     end
   end
   separator_line = separator_line .. "┤"
-  vim.api.nvim_buf_set_lines(bufnr, 2, 3, false, {separator_line})
-  
+  vim.api.nvim_buf_set_lines(bufnr, 2, 3, false, { separator_line })
+
   -- Find max issues to display
   local max_issues = 0
-  for i = 1, num_columns do
+  for i = start_col, end_col do
     local column_issues = issues_by_column[i] or {}
     max_issues = math.max(max_issues, #column_issues)
   end
-  
+
   -- Calculate content height
   local content_height = popup_height - 5 -- Header (3) + Footer (2)
   local visible_issues = math.min(max_issues, content_height)
-  
+
   -- Reset issue map
   GitHubProjectsNuiUI.issue_map = {}
-  
+
   -- Draw content rows
   for i = 1, visible_issues do
     local content_line = "│"
-    
-    for col_idx = 1, num_columns do
+    local col_index = 0
+    for col_idx = start_col, end_col do
+      col_index = col_index + 1
       local column_issues = issues_by_column[col_idx] or {}
       local issue_text = ""
-      
+
       if i <= #column_issues then
         local issue = column_issues[i]
         local number = safe_str(issue.number)
         local title = safe_str(issue.title)
-        
+
         if vim.fn.strwidth(title) > column_width - 6 then
           title = vim.fn.strcharpart(title, 0, column_width - 9) .. "..."
         end
-        
+
         issue_text = "#" .. number .. ": " .. title
-        
+
         GitHubProjectsNuiUI.issue_map[col_idx .. "_" .. i] = issue
       end
-      
+
       local padding = column_width - vim.fn.strwidth(issue_text)
       if padding > 0 then
         issue_text = issue_text .. string.rep(" ", padding)
       end
       content_line = content_line .. issue_text .. "│"
     end
-    
-    vim.api.nvim_buf_set_lines(bufnr, 2 + i, 3 + i, false, {content_line})
+
+    vim.api.nvim_buf_set_lines(bufnr, 2 + i, 3 + i, false, { content_line })
   end
-  
+
   -- Fill remaining rows
   for i = visible_issues + 1, content_height do
     local empty_line = "│"
-    for j = 1, num_columns do
+    for j = 1, visible_col_count do
       empty_line = empty_line .. string.rep(" ", column_width) .. "│"
     end
-    vim.api.nvim_buf_set_lines(bufnr, 2 + i, 3 + i, false, {empty_line})
+    vim.api.nvim_buf_set_lines(bufnr, 2 + i, 3 + i, false, { empty_line })
   end
-  
+
   -- Draw footer
   local footer_line = "╰"
-  for i = 1, num_columns do
+  for i = 1, visible_col_count do
     footer_line = footer_line .. string.rep("─", column_width)
-    if i < num_columns then
+    if i < visible_col_count then
       footer_line = footer_line .. "┴"
     end
   end
   footer_line = footer_line .. "╯"
-  vim.api.nvim_buf_set_lines(bufnr, popup_height - 2, popup_height - 1, false, {footer_line})
-  
+  vim.api.nvim_buf_set_lines(bufnr, popup_height - 2, popup_height - 1, false, { footer_line })
+
   -- Add help text
   local help_text = "Navigation: ←/→ (columns) ↑/↓ (issues) | Enter: Select | q/Esc: Exit"
   local help_padding = math.floor((popup_width - vim.fn.strwidth(help_text)) / 2)
   local help_line = string.rep(" ", help_padding) .. help_text
-  vim.api.nvim_buf_set_lines(bufnr, popup_height - 1, popup_height, false, {help_line})
-  
+  vim.api.nvim_buf_set_lines(bufnr, popup_height - 1, popup_height, false, { help_line })
+
   -- Apply highlights
   local ns_id = vim.api.nvim_create_namespace("GitHubProjectsKanban")
-  
+
   -- Highlight borders and headers
   vim.api.nvim_buf_add_highlight(bufnr, ns_id, "GitHubProjectsKanbanBorder", 0, 0, -1)
   vim.api.nvim_buf_add_highlight(bufnr, ns_id, "GitHubProjectsKanbanBorder", 2, 0, -1)
   vim.api.nvim_buf_add_highlight(bufnr, ns_id, "GitHubProjectsKanbanBorder", popup_height - 2, 0, -1)
   vim.api.nvim_buf_add_highlight(bufnr, ns_id, "GitHubProjectsInfo", popup_height - 1, 0, -1)
-  
+
   -- Highlight column titles
   local col_start = 1
-  for i, column in ipairs(columns) do
+  local col_index = 0
+  for i = start_col, end_col do
+    col_index = col_index + 1
+    local column = columns[i]
     local _, highlight_group = get_status_style(column.name)
-    
+
     local col_end = col_start + column_width
     if col_end <= #title_line then
       vim.api.nvim_buf_add_highlight(bufnr, ns_id, highlight_group, 1, col_start, col_end)
     end
     col_start = col_end + 1
   end
-  
+
   -- Highlight issues
   for i = 1, visible_issues do
     local line_idx = 2 + i
     local col_start = 0
-    
-    for col_idx = 1, num_columns do
+    local col_index = 0
+
+    for col_idx = start_col, end_col do
+      col_index = col_index + 1
       vim.api.nvim_buf_add_highlight(bufnr, ns_id, "GitHubProjectsKanbanBorder", line_idx, col_start, col_start + 1)
       col_start = col_start + 1
-      
+
       local column_issues = issues_by_column[col_idx] or {}
       if i <= #column_issues then
         local issue = column_issues[i]
         local _, highlight_group = get_status_style(columns[col_idx].name)
-        
+
         local col_end = col_start + column_width
         if col_end <= popup_width then
           vim.api.nvim_buf_add_highlight(bufnr, ns_id, highlight_group, line_idx, col_start, col_end)
         end
       end
-      
+
       col_start = col_start + column_width
     end
-    
+
     vim.api.nvim_buf_add_highlight(bufnr, ns_id, "GitHubProjectsKanbanBorder", line_idx, col_start, col_start + 1)
   end
-  
+
   -- Highlight empty rows
   for i = visible_issues + 1, content_height do
     local line_idx = 2 + i
     local col_start = 0
-    
-    for j = 1, num_columns + 1 do
+
+    for j = 1, visible_col_count + 1 do
       vim.api.nvim_buf_add_highlight(bufnr, ns_id, "GitHubProjectsKanbanBorder", line_idx, col_start, col_start + 1)
       col_start = col_start + 1
-      
-      if j <= num_columns then
+
+      if j <= visible_col_count then
         local col_end = col_start + column_width
         if col_end <= popup_width then
           vim.api.nvim_buf_add_highlight(bufnr, ns_id, "Normal", line_idx, col_start, col_end)
@@ -453,7 +476,7 @@ function M.render_kanban_view()
       end
     end
   end
-  
+
   -- Highlight current selection
   M._highlight_selection()
 end
@@ -463,21 +486,27 @@ function M._highlight_selection()
   if not GitHubProjectsNuiUI.current_popup then
     return
   end
-  
+
   local bufnr = GitHubProjectsNuiUI.current_popup.bufnr
   local popup_width = GitHubProjectsNuiUI.current_popup.win_config.width
   local num_columns = #GitHubProjectsNuiUI.columns
-  local column_width = math.floor((popup_width - (num_columns + 1)) / num_columns)
-  
+
+  -- Calculate visible columns based on horizontal offset
+  local start_col = GitHubProjectsNuiUI.horizontal_offset + 1
+  local end_col = math.min(num_columns, start_col + GitHubProjectsNuiUI.visible_columns - 1)
+  local visible_col_count = end_col - start_col + 1
+
+  local column_width = math.floor((popup_width - (visible_col_count + 1)) / visible_col_count)
+
   local ns_id = vim.api.nvim_create_namespace("GitHubProjectsKanbanSelection")
-  
+
   vim.api.nvim_buf_clear_namespace(bufnr, ns_id, 0, -1)
-  
+
   local line_idx = 2 + GitHubProjectsNuiUI.current_selection
   local col_idx = GitHubProjectsNuiUI.current_column
-  local col_start = 1 + (col_idx - 1) * (column_width + 1)
+  local col_start = 1 + (col_idx - start_col) * (column_width + 1)
   local col_end = col_start + column_width
-  
+
   if line_idx < vim.api.nvim_buf_line_count(bufnr) and col_end <= popup_width then
     vim.api.nvim_buf_add_highlight(bufnr, ns_id, "GitHubProjectsKanbanSelected", line_idx, col_start, col_end)
   end
@@ -488,11 +517,11 @@ function M._move_selection(direction)
   if not GitHubProjectsNuiUI.current_popup then
     return
   end
-  
+
   local columns = GitHubProjectsNuiUI.columns
   local issues_by_column = GitHubProjectsNuiUI.issues_by_column
   local current_column_issues = issues_by_column[GitHubProjectsNuiUI.current_column] or {}
-  
+
   if direction == "up" then
     GitHubProjectsNuiUI.current_selection = math.max(1, GitHubProjectsNuiUI.current_selection - 1)
   elseif direction == "down" then
@@ -509,6 +538,8 @@ function M._move_selection(direction)
       if GitHubProjectsNuiUI.current_selection == 0 then
         GitHubProjectsNuiUI.current_selection = 1
       end
+      -- Add horizontal scroll offset if needed
+      M._update_horizontal_view()
     end
   elseif direction == "right" then
     if GitHubProjectsNuiUI.current_column < #columns then
@@ -518,10 +549,40 @@ function M._move_selection(direction)
       if GitHubProjectsNuiUI.current_selection == 0 then
         GitHubProjectsNuiUI.current_selection = 1
       end
+      -- Add horizontal scroll offset if needed
+      M._update_horizontal_view()
     end
   end
-  
+
   M._highlight_selection()
+end
+
+-- Add horizontal scrolling support for compressed layouts
+function M._update_horizontal_view()
+  if not GitHubProjectsNuiUI.current_popup then
+    return
+  end
+
+  local popup_width = GitHubProjectsNuiUI.current_popup.win_config.width
+  local num_columns = #GitHubProjectsNuiUI.columns
+  local min_column_width = 25 -- Minimum readable width
+  local max_visible = math.floor(popup_width / min_column_width)
+
+  if num_columns > max_visible then
+    -- Need horizontal scrolling
+    local current_col = GitHubProjectsNuiUI.current_column
+    local offset = GitHubProjectsNuiUI.horizontal_offset
+
+    -- Adjust offset to keep current column visible
+    if current_col <= offset then
+      GitHubProjectsNuiUI.horizontal_offset = math.max(0, current_col - 1)
+    elseif current_col > offset + max_visible then
+      GitHubProjectsNuiUI.horizontal_offset = current_col - max_visible
+    end
+
+    GitHubProjectsNuiUI.visible_columns = max_visible
+    M.render_kanban_view()
+  end
 end
 
 -- Select current issue
@@ -529,10 +590,10 @@ function M._select_current_issue()
   if not GitHubProjectsNuiUI.current_popup then
     return
   end
-  
+
   local issue_key = GitHubProjectsNuiUI.current_column .. "_" .. GitHubProjectsNuiUI.current_selection
   local selected_issue = GitHubProjectsNuiUI.issue_map[issue_key]
-  
+
   if selected_issue then
     -- Store current project state before showing issue details
     GitHubProjectsNuiUI.previous_view = {
@@ -542,7 +603,7 @@ function M._select_current_issue()
       current_column = GitHubProjectsNuiUI.current_column,
       current_selection = GitHubProjectsNuiUI.current_selection
     }
-    
+
     M.show_issue_details(selected_issue)
   else
     vim.notify("No issue at this position", vim.log.levels.WARN)
@@ -554,13 +615,13 @@ function M._return_to_kanban()
   if GitHubProjectsNuiUI.previous_view then
     local prev = GitHubProjectsNuiUI.previous_view
     GitHubProjectsNuiUI.close_current_popup()
-    
+
     -- Restore project state
     GitHubProjectsNuiUI.current_project = prev.project
-    
+
     -- Show the kanban board again
     M.show_issues_kanban(prev.columns, prev.issues_by_column, prev.project.title)
-    
+
     -- Restore selection
     GitHubProjectsNuiUI.current_column = prev.current_column
     GitHubProjectsNuiUI.current_selection = prev.current_selection
@@ -580,21 +641,21 @@ function M.show_issue_details(issue)
   -- Title and header
   table.insert(lines, "╭" .. string.rep("─", width) .. "╮")
   table.insert(lines, "│ " .. string.rep(" ", width - 2) .. " │")
-  
+
   local title = safe_str(issue.title)
   local title_line = "│  " .. title
   title_line = title_line .. string.rep(" ", width - vim.fn.strwidth(title_line) - 1) .. "│"
   table.insert(lines, title_line)
-  
+
   local number = "#" .. safe_str(issue.number)
   local state = safe_str(issue.state)
   local status = safe_str(issue.status) or state
   local state_icon, _ = get_status_style(status)
-  
+
   local info_line = "│  " .. number .. " - " .. state_icon .. " " .. status:upper()
   info_line = info_line .. string.rep(" ", width - vim.fn.strwidth(info_line) - 1) .. "│"
   table.insert(lines, info_line)
-  
+
   table.insert(lines, "│ " .. string.rep(" ", width - 2) .. " │")
   table.insert(lines, "├" .. string.rep("─", width) .. "┤")
 
@@ -626,19 +687,19 @@ function M.show_issue_details(issue)
   end
   assignee_line = assignee_line .. string.rep(" ", width - vim.fn.strwidth(assignee_line) - 1) .. "│"
   table.insert(lines, assignee_line)
-  
+
   -- Repository
   local repo_line = "│  Repository: " .. (issue.repository or "Unknown")
   repo_line = repo_line .. string.rep(" ", width - vim.fn.strwidth(repo_line) - 1) .. "│"
   table.insert(lines, repo_line)
 
   table.insert(lines, "│ " .. string.rep(" ", width - 2) .. " │")
-  
+
   -- URL
   local url_line = "│  URL: " .. (safe_str(issue.html_url) or "N/A")
   url_line = url_line .. string.rep(" ", width - vim.fn.strwidth(url_line) - 1) .. "│"
   table.insert(lines, url_line)
-  
+
   table.insert(lines, "│ " .. string.rep(" ", width - 2) .. " │")
   table.insert(lines, "├" .. string.rep("─", width) .. "┤")
   table.insert(lines, "│  Description:" .. string.rep(" ", width - 15) .. "│")
@@ -684,36 +745,37 @@ function M.show_issue_details(issue)
   GitHubProjectsNuiUI.current_popup:mount()
 
   vim.api.nvim_set_current_win(GitHubProjectsNuiUI.current_popup.winid)
-  
+
   local bufnr = GitHubProjectsNuiUI.current_popup.bufnr
   vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
-  
+
   vim.api.nvim_buf_set_option(bufnr, 'modifiable', false)
   vim.api.nvim_buf_set_option(bufnr, 'readonly', true)
 
   -- Apply highlights
   local ns_id = vim.api.nvim_create_namespace("GitHubProjectsIssueDetails")
-  
+
   -- Borders
   for i = 0, #lines - 1 do
     vim.api.nvim_buf_add_highlight(bufnr, ns_id, "GitHubProjectsKanbanBorder", i, 0, 1)
     vim.api.nvim_buf_add_highlight(bufnr, ns_id, "GitHubProjectsKanbanBorder", i, width + 1, width + 2)
   end
-  
+
   -- Title and header
   vim.api.nvim_buf_add_highlight(bufnr, ns_id, "GitHubProjectsKanbanBorder", 0, 0, -1)
   vim.api.nvim_buf_add_highlight(bufnr, ns_id, "GitHubProjectsTitle", 2, 3, -2)
-  
+
   -- Status
   local _, status_highlight = get_status_style(issue.status or issue.state)
   vim.api.nvim_buf_add_highlight(bufnr, ns_id, status_highlight, 3, 3, -2)
-  
+
   -- URL
   vim.api.nvim_buf_add_highlight(bufnr, ns_id, "GitHubProjectsURL", 10, 8, -2)
 
   -- Keymap to open URL
   vim.api.nvim_buf_set_keymap(bufnr, 'n', 'o',
-    string.format(":lua vim.ui.open('%s'); require('github-projects.ui_nui').close_current_popup()<CR>", safe_str(issue.html_url)),
+    string.format(":lua vim.ui.open('%s'); require('github-projects.ui_nui').close_current_popup()<CR>",
+      safe_str(issue.html_url)),
     { noremap = true, silent = true })
 
   -- Keymap to return to board
@@ -730,37 +792,37 @@ function M.show_issue_details(issue)
     { noremap = true, silent = true })
 
   -- Navigation keymaps
-  vim.api.nvim_buf_set_keymap(bufnr, 'n', 'j', 
-    "j", 
+  vim.api.nvim_buf_set_keymap(bufnr, 'n', 'j',
+    "j",
     { noremap = true, silent = true })
 
-  vim.api.nvim_buf_set_keymap(bufnr, 'n', 'k', 
-    "k", 
+  vim.api.nvim_buf_set_keymap(bufnr, 'n', 'k',
+    "k",
     { noremap = true, silent = true })
 
-  vim.api.nvim_buf_set_keymap(bufnr, 'n', 'h', 
-    "h", 
+  vim.api.nvim_buf_set_keymap(bufnr, 'n', 'h',
+    "h",
     { noremap = true, silent = true })
 
-  vim.api.nvim_buf_set_keymap(bufnr, 'n', 'l', 
-    "l", 
+  vim.api.nvim_buf_set_keymap(bufnr, 'n', 'l',
+    "l",
     { noremap = true, silent = true })
 
   -- Page scroll keymaps
-  vim.api.nvim_buf_set_keymap(bufnr, 'n', '<C-f>', 
-    "<C-f>", 
+  vim.api.nvim_buf_set_keymap(bufnr, 'n', '<C-f>',
+    "<C-f>",
     { noremap = true, silent = true })
 
-  vim.api.nvim_buf_set_keymap(bufnr, 'n', '<C-b>', 
-    "<C-b>", 
+  vim.api.nvim_buf_set_keymap(bufnr, 'n', '<C-b>',
+    "<C-b>",
     { noremap = true, silent = true })
 
-  vim.api.nvim_buf_set_keymap(bufnr, 'n', '<C-d>', 
-    "<C-d>", 
+  vim.api.nvim_buf_set_keymap(bufnr, 'n', '<C-d>',
+    "<C-d>",
     { noremap = true, silent = true })
 
-  vim.api.nvim_buf_set_keymap(bufnr, 'n', '<C-u>', 
-    "<C-u>", 
+  vim.api.nvim_buf_set_keymap(bufnr, 'n', '<C-u>',
+    "<C-u>",
     { noremap = true, silent = true })
 end
 
