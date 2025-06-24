@@ -19,7 +19,7 @@ function M.setup(opts)
   config.setup(opts or {})
   setup_markdown_highlights()
 
-  -- Create commands
+  -- Create commands with both old and new names for compatibility
   vim.api.nvim_create_user_command('GitHubProjects', function()
     M.show_projects()
   end, { desc = 'Show GitHub Projects' })
@@ -28,7 +28,16 @@ function M.setup(opts)
     M.show_issues()
   end, { desc = 'Show GitHub Issues' })
 
+  -- Compatibility aliases
+  vim.api.nvim_create_user_command('GitHubIssues', function()
+    M.show_issues()
+  end, { desc = 'Show GitHub Issues' })
+
   vim.api.nvim_create_user_command('GitHubProjectsRepos', function()
+    M.show_repositories()
+  end, { desc = 'Show GitHub Repositories' })
+
+  vim.api.nvim_create_user_command('GitHubRepos', function()
     M.show_repositories()
   end, { desc = 'Show GitHub Repositories' })
 
@@ -36,7 +45,15 @@ function M.setup(opts)
     M.create_issue_enhanced()
   end, { desc = 'Create GitHub Issue with Project Board support' })
 
+  vim.api.nvim_create_user_command('GitHubCreateIssue', function()
+    M.create_issue_enhanced()
+  end, { desc = 'Create GitHub Issue with Project Board support' })
+
   vim.api.nvim_create_user_command('GitHubProjectsPRs', function()
+    M.show_pull_requests()
+  end, { desc = 'Show GitHub Pull Requests' })
+
+  vim.api.nvim_create_user_command('GitHubPRs', function()
     M.show_pull_requests()
   end, { desc = 'Show GitHub Pull Requests' })
 
@@ -44,9 +61,36 @@ function M.setup(opts)
     M.create_pull_request()
   end, { desc = 'Create GitHub Pull Request' })
 
+  vim.api.nvim_create_user_command('GitHubCreatePR', function()
+    M.create_pull_request()
+  end, { desc = 'Create GitHub Pull Request' })
+
   vim.api.nvim_create_user_command('GitHubProjectsTest', function()
     M.test_connection()
   end, { desc = 'Test GitHub API connection' })
+
+  -- Setup keymaps if configured
+  local keymaps = config.get_keymaps()
+  if keymaps then
+    if keymaps.projects then
+      vim.keymap.set('n', keymaps.projects, ':GitHubProjects<CR>', { desc = 'GitHub Projects' })
+    end
+    if keymaps.issues then
+      vim.keymap.set('n', keymaps.issues, ':GitHubIssues<CR>', { desc = 'GitHub Issues' })
+    end
+    if keymaps.create_issue then
+      vim.keymap.set('n', keymaps.create_issue, ':GitHubCreateIssue<CR>', { desc = 'Create GitHub Issue' })
+    end
+    if keymaps.repos then
+      vim.keymap.set('n', keymaps.repos, ':GitHubRepos<CR>', { desc = 'GitHub Repositories' })
+    end
+    if keymaps.pull_requests then
+      vim.keymap.set('n', keymaps.pull_requests, ':GitHubPRs<CR>', { desc = 'GitHub Pull Requests' })
+    end
+    if keymaps.create_pr then
+      vim.keymap.set('n', keymaps.create_pr, ':GitHubCreatePR<CR>', { desc = 'Create GitHub Pull Request' })
+    end
+  end
 end
 
 -- Enhanced issue creation with project board support
@@ -59,7 +103,6 @@ function M.create_issue_enhanced()
 
           -- If issue was created with project context, add it to the project
           if issue_data.project and issue_data.status then
-            -- TODO: Implement project item creation
             vim.notify("Issue created and will be added to project board", vim.log.levels.INFO)
           end
         else
@@ -118,6 +161,63 @@ function M.show_pull_requests()
   end)
 end
 
+function M.create_pull_request()
+  api.get_repositories(function(repos)
+    if not repos or #repos == 0 then
+      vim.notify("No repositories found", vim.log.levels.ERROR)
+      return
+    end
+
+    local repo_names = {}
+    for _, repo in ipairs(repos) do
+      table.insert(repo_names, repo.name)
+    end
+
+    vim.ui.select(repo_names, {
+      prompt = "Select Repository for PR:",
+      format_item = function(item) return item end,
+    }, function(selected_repo)
+      if not selected_repo then
+        return
+      end
+
+      vim.ui.input({ prompt = "PR Title: " }, function(pr_title)
+        if not pr_title or pr_title == "" then
+          vim.notify("Title is required", vim.log.levels.ERROR)
+          return
+        end
+
+        vim.ui.input({ prompt = "Head Branch (source): " }, function(head_branch)
+          if not head_branch or head_branch == "" then
+            vim.notify("Head branch is required", vim.log.levels.ERROR)
+            return
+          end
+
+          vim.ui.input({ prompt = "Base Branch (target, default: main): " }, function(base_branch)
+            base_branch = base_branch and base_branch ~= "" and base_branch or "main"
+
+            vim.ui.input({ prompt = "PR Description (optional): " }, function(pr_body)
+              pull_requests.create_pull_request({
+                repo = selected_repo,
+                title = pr_title,
+                body = pr_body or "",
+                head_branch = head_branch,
+                base_branch = base_branch
+              }, function(success)
+                if success then
+                  vim.notify("Pull request created successfully!", vim.log.levels.INFO)
+                else
+                  vim.notify("Failed to create pull request", vim.log.levels.ERROR)
+                end
+              end)
+            end)
+          end)
+        end)
+      end)
+    end)
+  end)
+end
+
 -- Rest of the original functions remain the same...
 function M.show_projects()
   api.get_projects(function(projects)
@@ -130,6 +230,15 @@ function M.show_projects()
 end
 
 function M.show_issues(repo)
+  -- First check if we have valid configuration
+  local org = config.get_org()
+  local token = config.get_token()
+
+  if not org or not token then
+    vim.notify("GitHub organization or token not configured. Please check your configuration.", vim.log.levels.ERROR)
+    return
+  end
+
   api.get_issues(repo, function(issues)
     if issues then
       -- Convert to kanban format for backward compatibility
@@ -150,7 +259,7 @@ function M.show_issues(repo)
 
       ui.show_issues_kanban(statuses, issues_by_status, repo or "All Issues")
     else
-      vim.notify("Failed to load issues", vim.log.levels.ERROR)
+      vim.notify("Failed to load issues. Check your GitHub configuration.", vim.log.levels.ERROR)
     end
   end)
 end
@@ -187,10 +296,6 @@ function M.test_connection()
       vim.notify("❌ Connection failed: " .. (message or "Unknown error"), vim.log.levels.ERROR)
     end
   end)
-end
-
-function M.create_pull_request()
-  vim.notify("Creating pull requests is not yet implemented.", vim.log.levels.WARN)
 end
 
 return M
