@@ -99,7 +99,194 @@ function M.setup(opts)
   end
 end
 
--- Enhanced issue creation with project board support
+-- FIXED: Improved show_issues function with proper error handling
+function M.show_issues(repo)
+  -- First check if we have valid configuration
+  local org = config.get_org()
+  local token = config.get_token()
+
+  if not org or not token then
+    vim.notify("GitHub organization or token not configured. Please check your configuration.", vim.log.levels.ERROR)
+    return
+  end
+
+  -- Check cache first with proper key handling
+  local cache_key = repo or "all"
+  local cached_issues = cache.get("issues", cache_key)
+
+  if cached_issues and #cached_issues > 0 then
+    vim.notify("Using cached issues (" .. #cached_issues .. " found)", vim.log.levels.INFO)
+    M._show_issues_kanban(cached_issues, repo)
+    return
+  end
+
+  -- Show loading notification only
+  vim.notify("Loading issues from GitHub... This may take a moment.", vim.log.levels.INFO)
+
+  -- Load issues with proper error handling
+  api.get_issues(repo, function(issues)
+    -- Handle the response properly
+    if not issues then
+      vim.notify("Failed to load issues. Please check your GitHub configuration and try again.", vim.log.levels.ERROR)
+      return
+    end
+
+    if #issues == 0 then
+      vim.notify("No issues found in " .. (repo or "organization"), vim.log.levels.WARN)
+      -- Show empty state
+      M._show_issues_kanban({}, repo)
+      return
+    end
+
+    -- Success case
+    cache.set(issues, "issues", cache_key)
+    vim.notify("Successfully loaded " .. #issues .. " issues", vim.log.levels.INFO)
+    M._show_issues_kanban(issues, repo)
+  end)
+end
+
+-- IMPROVED: Better kanban conversion with error handling
+function M._show_issues_kanban(issues, repo)
+  if not issues then
+    vim.notify("No issues data to display", vim.log.levels.ERROR)
+    return
+  end
+
+  -- Convert to kanban format for backward compatibility
+  local issues_by_status = {
+    ["Open"] = {},
+    ["Closed"] = {}
+  }
+
+  for _, issue in ipairs(issues) do
+    if issue and issue.state then
+      local status = (issue.state == "open" or issue.state == "OPEN") and "Open" or "Closed"
+      table.insert(issues_by_status[status], issue)
+    end
+  end
+
+  local statuses = {
+    { name = "Open",   id = "open" },
+    { name = "Closed", id = "closed" }
+  }
+
+  -- Call UI with proper error handling
+  local success, err = pcall(function()
+    ui.show_issues_kanban(statuses, issues_by_status, repo or "All Issues")
+  end)
+
+  if not success then
+    vim.notify("Error displaying issues: " .. tostring(err), vim.log.levels.ERROR)
+  end
+end
+
+-- IMPROVED: Better projects loading
+function M.show_projects()
+  -- First check configuration
+  local org = config.get_org()
+  local token = config.get_token()
+
+  if not org or not token then
+    vim.notify("GitHub organization or token not configured. Please check your configuration.", vim.log.levels.ERROR)
+    return
+  end
+
+  -- Check cache first
+  local cached_projects = cache.get("projects")
+
+  if cached_projects and #cached_projects > 0 then
+    vim.notify("Using cached projects (" .. #cached_projects .. " found)", vim.log.levels.INFO)
+    ui.show_projects(cached_projects)
+    return
+  end
+
+  vim.notify("Loading projects from GitHub...", vim.log.levels.INFO)
+  api.get_projects(function(projects)
+    if not projects then
+      vim.notify("Failed to load projects. Check your GitHub configuration.", vim.log.levels.ERROR)
+      return
+    end
+
+    if #projects == 0 then
+      vim.notify("No projects found in organization " .. org, vim.log.levels.WARN)
+      ui.show_projects({})
+      return
+    end
+
+    cache.set(projects, "projects")
+    vim.notify("Successfully loaded " .. #projects .. " projects", vim.log.levels.INFO)
+    ui.show_projects(projects)
+  end)
+end
+
+-- IMPROVED: Better repositories loading
+function M.show_repositories()
+  -- Check configuration first
+  local org = config.get_org()
+  local token = config.get_token()
+
+  if not org or not token then
+    vim.notify("GitHub organization or token not configured. Please check your configuration.", vim.log.levels.ERROR)
+    return
+  end
+
+  -- Check cache first
+  local cached_repos = cache.get("repositories")
+
+  if cached_repos and #cached_repos > 0 then
+    vim.notify("Using cached repositories (" .. #cached_repos .. " found)", vim.log.levels.INFO)
+    ui.show_repositories(cached_repos)
+    return
+  end
+
+  vim.notify("Loading repositories from GitHub...", vim.log.levels.INFO)
+  api.get_repositories(function(repos)
+    if not repos then
+      vim.notify("Failed to load repositories. Check your GitHub configuration.", vim.log.levels.ERROR)
+      return
+    end
+
+    if #repos == 0 then
+      vim.notify("No repositories found in organization " .. org, vim.log.levels.WARN)
+      ui.show_repositories({})
+      return
+    end
+
+    cache.set(repos, "repositories")
+    vim.notify("Successfully loaded " .. #repos .. " repositories", vim.log.levels.INFO)
+    ui.show_repositories(repos)
+  end)
+end
+
+-- IMPROVED: Test connection with better feedback
+function M.test_connection()
+  vim.notify("Testing GitHub connection...", vim.log.levels.INFO)
+
+  local org = config.get_org()
+  local token = config.get_token()
+
+  if not org then
+    vim.notify("❌ Organization not configured", vim.log.levels.ERROR)
+    return
+  end
+
+  if not token then
+    vim.notify("❌ Access token not configured", vim.log.levels.ERROR)
+    return
+  end
+
+  api.test_connection(function(success, message)
+    if success then
+      vim.notify("✅ Connection successful: " .. message, vim.log.levels.INFO)
+      vim.notify("Organization: " .. org, vim.log.levels.INFO)
+    else
+      vim.notify("❌ Connection failed: " .. (message or "Unknown error"), vim.log.levels.ERROR)
+      vim.notify("Please check your token and organization configuration", vim.log.levels.ERROR)
+    end
+  end)
+end
+
+-- Keep all your other functions as they were, they look fine
 function M.create_issue_enhanced()
   ui_enhanced.create_issue_with_project_selection(function(issue_data)
     if issue_data then
@@ -122,7 +309,6 @@ function M.create_issue_enhanced()
   end)
 end
 
--- Show pull requests with improved error handling
 function M.show_pull_requests()
   -- First check configuration
   local org = config.get_org()
@@ -293,136 +479,6 @@ function M._create_pr_with_repos(repos)
   end)
 end
 
--- Rest of the original functions with improved performance...
-function M.show_projects()
-  -- First check configuration
-  local org = config.get_org()
-  local token = config.get_token()
-
-  if not org or not token then
-    vim.notify("GitHub organization or token not configured. Please check your configuration.", vim.log.levels.ERROR)
-    return
-  end
-
-  -- Check cache first
-  local cached_projects = cache.get("projects")
-
-  if cached_projects then
-    ui.show_projects(cached_projects)
-    return
-  end
-
-  vim.notify("Loading projects from GitHub...", vim.log.levels.INFO)
-  api.get_projects(function(projects)
-    if projects then
-      cache.set(projects, "projects")
-      vim.notify("Loaded " .. #projects .. " projects", vim.log.levels.INFO)
-      ui.show_projects(projects)
-    else
-      vim.notify("Failed to load projects. Check your GitHub configuration.", vim.log.levels.ERROR)
-    end
-  end)
-end
-
-function M.show_issues(repo)
-  -- First check if we have valid configuration
-  local org = config.get_org()
-  local token = config.get_token()
-
-  if not org or not token then
-    vim.notify("GitHub organization or token not configured. Please check your configuration.", vim.log.levels.ERROR)
-    return
-  end
-
-  -- Check cache first
-  local cache_key = repo or "all"
-  local cached_issues = cache.get("issues", cache_key)
-
-  if cached_issues then
-    vim.notify("Using cached issues (" .. #cached_issues .. " found)", vim.log.levels.INFO)
-    M._show_issues_kanban(cached_issues, repo)
-    return
-  end
-
-  -- Show loading interface immediately
-  local loading_issues = { {
-    number = "...",
-    title = "Loading issues from GitHub...",
-    state = "open",
-    body = "Please wait while we fetch your issues.",
-    html_url = "",
-    repository = org,
-    labels = {},
-    assignees = {}
-  } }
-
-  M._show_issues_kanban(loading_issues, repo or "All Issues")
-
-  -- Load issues in background
-  api.get_issues(repo, function(issues)
-    if issues and #issues > 0 then
-      cache.set(issues, "issues", cache_key)
-      vim.notify("Loaded " .. #issues .. " issues", vim.log.levels.INFO)
-      -- Update the interface with real data
-      M._show_issues_kanban(issues, repo)
-    else
-      vim.notify("No issues found or failed to load issues. Check your GitHub configuration.", vim.log.levels.WARN)
-      -- Show empty state
-      M._show_issues_kanban({}, repo)
-    end
-  end)
-end
-
-function M._show_issues_kanban(issues, repo)
-  -- Convert to kanban format for backward compatibility
-  local issues_by_status = {
-    ["Open"] = {},
-    ["Closed"] = {}
-  }
-
-  for _, issue in ipairs(issues) do
-    local status = issue.state == "open" and "Open" or "Closed"
-    table.insert(issues_by_status[status], issue)
-  end
-
-  local statuses = {
-    { name = "Open",   id = "open" },
-    { name = "Closed", id = "closed" }
-  }
-
-  ui.show_issues_kanban(statuses, issues_by_status, repo or "All Issues")
-end
-
-function M.show_repositories()
-  -- Check configuration first
-  local org = config.get_org()
-  local token = config.get_token()
-
-  if not org or not token then
-    vim.notify("GitHub organization or token not configured. Please check your configuration.", vim.log.levels.ERROR)
-    return
-  end
-
-  -- Check cache first
-  local cached_repos = cache.get("repositories")
-
-  if cached_repos then
-    ui.show_repositories(cached_repos)
-    return
-  end
-
-  vim.notify("Loading repositories from GitHub...", vim.log.levels.INFO)
-  api.get_repositories(function(repos)
-    if repos then
-      cache.set(repos, "repositories")
-      vim.notify("Loaded " .. #repos .. " repositories", vim.log.levels.INFO)
-      ui.show_repositories(repos)
-    else
-      vim.notify("Failed to load repositories. Check your GitHub configuration.", vim.log.levels.ERROR)
-    end
-  end)
-end
-
 function M.create_issue()
   ui.create_issue_form(function(issue_data)
     if issue_data then
@@ -435,17 +491,6 @@ function M.create_issue()
           vim.notify("Failed to create issue", vim.log.levels.ERROR)
         end
       end)
-    end
-  end)
-end
-
-function M.test_connection()
-  vim.notify("Testing GitHub connection...", vim.log.levels.INFO)
-  api.test_connection(function(success, message)
-    if success then
-      vim.notify("✅ " .. message, vim.log.levels.INFO)
-    else
-      vim.notify("❌ Connection failed: " .. (message or "Unknown error"), vim.log.levels.ERROR)
     end
   end)
 end
