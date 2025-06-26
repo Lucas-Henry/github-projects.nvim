@@ -91,7 +91,10 @@ vim.keymap.set('n', '<leader>gr', '<cmd>GitHubRepos<cr>', { desc = 'GitHub Repos
       keymaps = {
         projects = "<leader>gp",
         issues = "<leader>gi",
-        create_issue = "<leader>gc"
+        create_issue = "<leader>gc",
+        repos = "<leader>gr",
+        pull_requests = "<leader>gpr", --Soon
+        create_pr = "<leader>gpc" -- Soon 
       },
       ui = {
         width = 120,      -- Width of the popup windows
@@ -105,8 +108,13 @@ vim.keymap.set('n', '<leader>gr', '<cmd>GitHubRepos<cr>', { desc = 'GitHub Repos
     { "<leader>gi", "<cmd>GitHubIssues<cr>",      desc = "GitHub Issues" },
     { "<leader>gc", "<cmd>GitHubCreateIssue<cr>", desc = "Create GitHub Issue" },
     { "<leader>gr", "<cmd>GitHubRepos<cr>",       desc = "GitHub Repositories" },
-  },
-  cmd = { "GitHubProjects", "GitHubIssues", "GitHubCreateIssue", "GitHubRepos" }
+    { "<leader>PR",  "<cmd>GitHubPRs<cr>",         desc = "GitHub Pull Requests" }, -- Soon
+    { "<leader>gpc", "<cmd>GitHubCreatePR<cr>",    desc = "Create GitHub PR" }, -- Soon
+},
+  cmd = {
+  "GitHubProjects", "GitHubIssues", "GitHubCreateIssue", "GitHubRepos",
+  "GitHubPRs", "GitHubCreatePR"
+  }
 }
 ```
 
